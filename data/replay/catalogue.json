@@ -1,0 +1,72 @@
+[
+  {
+    "replay_id": "flash_crowd__90110001-d00h05",
+    "scenario_type": "flash_crowd",
+    "range_id": 90110001,
+    "has_onset": false,
+    "window_count": 360
+  },
+  {
+    "replay_id": "flash_crowd__90110001-d00h11",
+    "scenario_type": "flash_crowd",
+    "range_id": 90110001,
+    "has_onset": true,
+    "window_count": 360
+  },
+  {
+    "replay_id": "gradual_buildup__90110001-d00h01",
+    "scenario_type": "gradual_buildup",
+    "range_id": 90110001,
+    "has_onset": true,
+    "window_count": 360
+  },
+  {
+    "replay_id": "gradual_buildup__90110001-d00h07",
+    "scenario_type": "gradual_buildup",
+    "range_id": 90110001,
+    "has_onset": true,
+    "window_count": 360
+  },
+  {
+    "replay_id": "normal__90110001-d00h00",
+    "scenario_type": "normal",
+    "range_id": 90110001,
+    "has_onset": false,
+    "window_count": 360
+  },
+  {
+    "replay_id": "normal__90110001-d00h02",
+    "scenario_type": "normal",
+    "range_id": 90110001,
+    "has_onset": false,
+    "window_count": 360
+  },
+  {
+    "replay_id": "recovery__90110001-d01h12",
+    "scenario_type": "recovery",
+    "range_id": 90110001,
+    "has_onset": true,
+    "window_count": 360
+  },
+  {
+    "replay_id": "recovery__90110001-d01h21",
+    "scenario_type": "recovery",
+    "range_id": 90110001,
+    "has_onset": true,
+    "window_count": 360
+  },
+  {
+    "replay_id": "sustained_attack__90110001-d00h09",
+    "scenario_type": "sustained_attack",
+    "range_id": 90110001,
+    "has_onset": true,
+    "window_count": 360
+  },
+  {
+    "replay_id": "sustained_attack__90110001-d02h10",
+    "scenario_type": "sustained_attack",
+    "range_id": 90110001,
+    "has_onset": true,
+    "window_count": 360
+  }
+]

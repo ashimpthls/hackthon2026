@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/suneel.kumarsonaker/netsec-ddos-shared-state-2/dfsi/mlruns/476210242740119266/6221caeaede5424e86350750b55db330/artifacts
+end_time: 1794378913649
+entry_point_name: ''
+experiment_id: '476210242740119266'
+lifecycle_stage: active
+run_id: 6221caeaede5424e86350750b55db330
+run_name: sedate-grub-838
+run_uuid: 6221caeaede5424e86350750b55db330
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1794378909531
+status: 3
+tags: []
+user_id: suneel.kumarsonaker

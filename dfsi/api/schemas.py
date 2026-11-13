@@ -1,0 +1,100 @@
+"""Request and response models for the DFSI API."""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+class ReplayRequest(BaseModel):
+    """Trigger a scenario replay."""
+
+    replay_id: str = Field(..., min_length=1, max_length=120)
+    #: Wall-clock seconds between streamed windows. 0.25 keeps a 60-minute
+    #: scenario inside a demo slot; 0 streams as fast as the client reads.
+    speed_seconds: float = Field(default=0.25, ge=0.0, le=5.0)
+    #: Stop automatically once the bell would have rung, so the demo lands on
+    #: the comparison rather than running on into the recovery.
+    stop_after_bell_windows: int = Field(default=6, ge=0, le=120)
+
+
+class DrillRequest(BaseModel):
+    """Run the rehearsal room on a replay, deciding at a given instant."""
+
+    replay_id: str = Field(..., min_length=1, max_length=120)
+    decision_epoch: int | None = Field(
+        default=None,
+        description=(
+            "Instant the operator is deciding at. Defaults to the first window "
+            "DFSI warned about."
+        ),
+    )
+    environment: Literal["stage", "prod"] | None = None
+
+
+class ExplainRequest(BaseModel):
+    """Ask the two Explainer agents to brief the operator."""
+
+    replay_id: str = Field(..., min_length=1, max_length=120)
+    decision_epoch: int | None = None
+    include_simulation: bool = True
+
+
+class DecisionRequest(BaseModel):
+    """Record a human's decision. Simulated — nothing is applied."""
+
+    replay_id: str = Field(..., min_length=1, max_length=120)
+    decision_epoch: int
+    policy_key: Literal["hold", "tighten_vector", "rate_limit_sources", "full_scrub"]
+    verdict: Literal["approved", "rejected", "changed"]
+    operator: str = Field(default="demo-operator", min_length=1, max_length=64)
+    note: str = Field(default="", max_length=500)
+    #: Echoed back from the forecast the operator was looking at, so the audit
+    #: record states which model version the decision was made against.
+    model_version: str = Field(default="unknown", max_length=120)
+
+
+class DecisionRecord(BaseModel):
+    recorded_at_epoch: int
+    replay_id: str
+    decision_epoch: int
+    policy_key: str
+    policy_name: str
+    verdict: str
+    operator: str
+    note: str
+    model_version: str
+    feature_version: str
+    applied: Literal[False] = False
+    note_to_auditor: str = (
+        "Simulated decision recorded for audit. DFSI is read-only; no policy "
+        "was applied and no traffic was affected."
+    )
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok", "degraded"]
+    forecaster_ready: bool
+    forecaster_error: str | None
+    model_version: str
+    feature_version: str
+    horizon_seconds: int
+    agent_engine: str
+    replays_available: int
+    environment: str
+
+
+class ModelCardResponse(BaseModel):
+    """What the model is, how it was measured, and where it falls short."""
+
+    model_version: str
+    feature_version: str
+    horizon_seconds: int
+    decision_threshold: float
+    features: list[str]
+    headline_metrics: dict[str, Any]
+    baseline_metrics: dict[str, Any]
+    per_scenario_type: dict[str, Any]
+    feature_importance: dict[str, float]
+    known_limitations: list[str]

@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/suneel.kumarsonaker/netsec-ddos-shared-state-2/dfsi/mlruns/476210242740119266/6f2f19ae9c224f0797c0d1a2ddb27523/artifacts
+end_time: 1794379797549
+entry_point_name: ''
+experiment_id: '476210242740119266'
+lifecycle_stage: active
+run_id: 6f2f19ae9c224f0797c0d1a2ddb27523
+run_name: crawling-conch-793
+run_uuid: 6f2f19ae9c224f0797c0d1a2ddb27523
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1794379795076
+status: 3
+tags: []
+user_id: suneel.kumarsonaker

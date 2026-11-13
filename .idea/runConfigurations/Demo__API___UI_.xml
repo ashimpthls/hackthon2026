@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Demo (API + UI)" type="CompoundRunConfigurationType">
+    <toRun name="3 · API (uvicorn 8000)" type="PythonConfigurationType" />
+    <toRun name="4 · UI (vite 5173)" type="js.build_tools.npm" />
+    <method v="2" />
+  </configuration>
+</component>

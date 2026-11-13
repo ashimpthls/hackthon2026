@@ -1,0 +1,33 @@
+# DFSI — DDoS Future-State Intelligence
+#
+# Pinned to what the project was built and measured against. Install into a
+# Python 3.12 virtualenv:
+#
+#     python3.12 -m venv .venv
+#     .venv/bin/pip install -r requirements.txt
+#
+# PySpark 3.5 also needs a JDK 11/17/21 on PATH — it will not run on JDK 23+
+# (javax.security.auth.Subject.getSubject was removed, and Hadoop's
+# UserGroupInformation still calls it). scripts/env.sh resolves one.
+
+# Memory — PySpark over the historical logbook
+pyspark==3.5.3
+pyarrow==17.0.0
+
+# Forecaster — gradient-boosted trees, tracked in MLflow
+scikit-learn==1.9.1
+pandas==2.3.3
+numpy==2.5.4
+mlflow==2.17.2
+
+# API — the trigger the dashboard talks to
+fastapi==0.162.4
+uvicorn==0.54.0
+pydantic==2.14.3
+
+# Explainers — bounded agents on Claude, with an offline rule fallback
+anthropic==2.8.0
+
+# Tests
+pytest==9.2.0
+httpx==0.28.1

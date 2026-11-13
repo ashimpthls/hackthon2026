@@ -1,0 +1,20 @@
+{
+  "features": [
+    "growth_pps_10s",
+    "growth_pps_60s",
+    "growth_mbps_10s",
+    "growth_mbps_60s",
+    "baseline_deviation_pps",
+    "baseline_deviation_mbps",
+    "baseline_deviation_pps_max_hour",
+    "country_hhi",
+    "country_hhi_delta_60s",
+    "account_attack_history",
+    "blocked_share",
+    "blocked_share_delta_10s",
+    "blocked_share_delta_60s",
+    "anomaly_persistence",
+    "policy_utilisation",
+    "policy_utilisation_mbps"
+  ]
+}

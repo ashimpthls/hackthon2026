@@ -1,0 +1,14 @@
+aliases: []
+creation_timestamp: 1794379673016
+current_stage: None
+description: null
+last_updated_timestamp: 1794379673016
+name: dfsi-onset-forecaster
+run_id: 659fdacf37734383a5ad91abf0767c73
+run_link: null
+source: file:///Users/suneel.kumarsonaker/netsec-ddos-shared-state-2/dfsi/mlruns/476210242740119266/659fdacf37734383a5ad91abf0767c73/artifacts/model
+status: READY
+status_message: null
+storage_location: file:///Users/suneel.kumarsonaker/netsec-ddos-shared-state-2/dfsi/mlruns/476210242740119266/659fdacf37734383a5ad91abf0767c73/artifacts/model
+user_id: null
+version: 3

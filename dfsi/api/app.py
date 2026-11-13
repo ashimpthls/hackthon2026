@@ -1,0 +1,396 @@
+"""DFSI API — the trigger surface and the live event stream.
+
+Endpoints
+---------
+GET  /api/health              service, model and agent status
+GET  /api/replays             the scenario catalogue (the trigger menu)
+GET  /api/model-card          what the model is and how it scored
+POST /api/replay/stream       SSE: stream a scenario past the forecaster
+POST /api/drill               run the rehearsal room on a replay
+POST /api/explain             run the two Explainer agents + validator
+POST /api/decision            record a simulated human decision
+GET  /api/decisions           read the audit log
+
+Everything is read-only with respect to the DDoS control plane. The only write
+this service performs is appending to its own decision audit log.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import time
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+
+from ..agents.orchestrator import ExplainerOrchestrator
+from ..agents.tools import EvidenceBundle
+from ..config import (
+    FEATURE_VERSION,
+    HORIZON_SECONDS,
+    PATHS,
+    STATE_ABOUT_TO_START,
+    thresholds_for,
+)
+from ..forecaster.serve import ForecasterService
+from ..rehearsal.simulator import CANDIDATES_BY_KEY, run_drill
+from . import replay as replay_engine
+from .schemas import (
+    DecisionRecord,
+    DecisionRequest,
+    DrillRequest,
+    ExplainRequest,
+    HealthResponse,
+    ModelCardResponse,
+    ReplayRequest,
+)
+
+log = logging.getLogger("dfsi.api")
+
+KNOWN_LIMITATIONS = [
+    "Trained and evaluated on synthetic traffic only. Real-world performance "
+    "is unmeasured.",
+    "Recovery scenarios open mid-attack, so there is no runway to forecast "
+    "from. They are excluded from the head-start figures and reported "
+    "separately as `in_progress_detected` — a detection rate, not a warning.",
+    "The head start is measured against the moment Shared State would "
+    "declare, not the moment traffic crosses the policy threshold. On a "
+    "production start duration of 300s the gap between those two is larger "
+    "than it is on this scenario set.",
+    "A flash crowd large enough to cross the policy threshold is a true onset "
+    "by DFSI's label definition, even though no attacker is involved.",
+    "The rehearsal room's suppression and collateral figures are stated "
+    "assumptions, not measurements of Behemoth's actual behaviour.",
+    "Source information is country-mix concentration only; an attack that is "
+    "evenly distributed across many countries loses that signal.",
+]
+
+app = FastAPI(
+    title="DFSI — DDoS Future-State Intelligence",
+    description=(
+        "Predictive lookout beside netsec-ddos-shared-state. Read-only and "
+        "simulation-only: ML makes the numbers, AI explains them, humans decide."
+    ),
+    version="0.1.0",
+)
+
+# The dashboard is served by Vite in development, so its origin differs from
+# the API's. Restricted to the local dev origins rather than "*" — a wildcard
+# with credentials enabled is how a dashboard becomes an open proxy.
+_DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv("DFSI_CORS_ORIGINS", _DEFAULT_ORIGINS).split(",")
+        if origin.strip()
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
+
+_forecaster = ForecasterService()
+_orchestrator = ExplainerOrchestrator()
+
+
+# --------------------------------------------------------------------------- #
+# Status
+# --------------------------------------------------------------------------- #
+@app.get("/api/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    catalogue = replay_engine.load_catalogue()
+    return HealthResponse(
+        status="ok" if _forecaster.ready and catalogue else "degraded",
+        forecaster_ready=_forecaster.ready,
+        forecaster_error=_forecaster.load_error,
+        model_version=_forecaster.model_version,
+        feature_version=_forecaster.feature_version,
+        horizon_seconds=HORIZON_SECONDS,
+        agent_engine=_orchestrator.engine,
+        replays_available=len(catalogue),
+        environment=thresholds_for().environment,
+    )
+
+
+@app.get("/api/replays")
+def list_replays() -> dict:
+    catalogue = replay_engine.load_catalogue()
+    if not catalogue:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "no replays available; run `python -m dfsi.memory.pipeline` to "
+                "build the Memory layer"
+            ),
+        )
+    return {
+        "replays": [entry.to_dict() for entry in catalogue],
+        "scenario_types": sorted({entry.scenario_type for entry in catalogue}),
+    }
+
+
+@app.get("/api/model-card", response_model=ModelCardResponse)
+def model_card() -> ModelCardResponse:
+    path: Path = PATHS.models / "training_report.json"
+    if not path.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="no training report; run `python -m dfsi.forecaster.train`",
+        )
+    report = json.loads(path.read_text())
+    return ModelCardResponse(
+        model_version=_forecaster.model_version,
+        feature_version=report.get("feature_version", FEATURE_VERSION),
+        horizon_seconds=report.get("horizon_seconds", HORIZON_SECONDS),
+        decision_threshold=report.get("decision_threshold", _forecaster.decision_threshold),
+        features=report.get("features", []),
+        headline_metrics=report.get("dfsi", {}),
+        baseline_metrics=report.get("fixed_threshold_baseline", {}),
+        per_scenario_type=report.get("per_scenario_type", {}),
+        feature_importance=report.get("feature_importance", {}),
+        known_limitations=KNOWN_LIMITATIONS,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The trigger: stream a scenario replay
+# --------------------------------------------------------------------------- #
+@app.post("/api/replay/stream")
+async def stream_replay(request: ReplayRequest) -> StreamingResponse:
+    """Server-sent events: one `window` event per 10-second window.
+
+    The stream is the demo. It ends with a `summary` event carrying the lead
+    time DFSI achieved against the threshold alarm.
+    """
+    try:
+        state = replay_engine.build_state(replay_engine.load_replay(request.replay_id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown replay {request.replay_id!r}")
+
+    async def events():
+        yield _sse(
+            {
+                "type": "start",
+                "replay_id": state.replay_id,
+                "scenario_type": state.scenario_type,
+                "range_id": state.range_id,
+                "total_windows": state.total,
+                "horizon_seconds": HORIZON_SECONDS,
+                "model_version": _forecaster.model_version,
+                "feature_version": _forecaster.feature_version,
+                "forecaster_ready": _forecaster.ready,
+            }
+        )
+        windows_after_bell = 0
+        try:
+            while not state.finished:
+                event = await asyncio.to_thread(replay_engine.step, state, _forecaster)
+                yield _sse(event)
+
+                if state.bell_epoch is not None:
+                    windows_after_bell += 1
+                    if (
+                        request.stop_after_bell_windows
+                        and windows_after_bell >= request.stop_after_bell_windows
+                    ):
+                        break
+                if request.speed_seconds:
+                    await asyncio.sleep(request.speed_seconds)
+        except asyncio.CancelledError:
+            # Client navigated away. Nothing to clean up — the replay holds no
+            # external resources — but do not swallow the cancellation.
+            raise
+        except Exception as exc:
+            log.exception("replay %s failed", state.replay_id)
+            yield _sse({"type": "error", "message": f"replay failed: {exc}"})
+            return
+
+        yield _sse(
+            {
+                "type": "summary",
+                "replay_id": state.replay_id,
+                "scenario_type": state.scenario_type,
+                "first_warning_epoch": state.first_warning_epoch,
+                "onset_epoch": state.onset_epoch,
+                "bell_epoch": state.bell_epoch,
+                "lead_seconds": (
+                    state.onset_epoch - state.first_warning_epoch
+                    if state.onset_epoch is not None and state.first_warning_epoch is not None
+                    else None
+                ),
+                "windows_streamed": state.cursor,
+            }
+        )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+# --------------------------------------------------------------------------- #
+# Rehearsal room
+# --------------------------------------------------------------------------- #
+@app.post("/api/drill")
+def drill(request: DrillRequest) -> dict:
+    replay, decision_epoch = _replay_and_decision_epoch(
+        request.replay_id, request.decision_epoch
+    )
+    result = run_drill(replay["windows"], decision_epoch, request.environment)
+    result["replay_id"] = request.replay_id
+    result["scenario_type"] = replay["scenario_type"]
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# Explainers
+# --------------------------------------------------------------------------- #
+@app.post("/api/explain")
+def explain(request: ExplainRequest) -> dict:
+    replay, decision_epoch = _replay_and_decision_epoch(
+        request.replay_id, request.decision_epoch
+    )
+    bundle = _build_bundle(replay, decision_epoch, request.include_simulation)
+    briefing = _orchestrator.explain(bundle)
+    briefing["replay_id"] = request.replay_id
+    briefing["scenario_type"] = replay["scenario_type"]
+    briefing["decision_epoch"] = decision_epoch
+    return briefing
+
+
+def _build_bundle(
+    replay: dict, decision_epoch: int, include_simulation: bool
+) -> EvidenceBundle:
+    """Assemble exactly what the agents are allowed to see.
+
+    Only windows at or before `decision_epoch` are included: an agent that can
+    see the future would explain the incident beautifully and uselessly.
+    """
+    rows = [
+        row for row in replay["windows"] if int(row["window_start_epoch"]) <= decision_epoch
+    ]
+    if not rows:
+        raise HTTPException(
+            status_code=400, detail=f"no windows at or before epoch {decision_epoch}"
+        )
+
+    current = [row for row in rows if int(row["window_start_epoch"]) == decision_epoch]
+    if not current:
+        raise HTTPException(
+            status_code=400, detail=f"epoch {decision_epoch} is not a window boundary"
+        )
+
+    forecast = _forecaster.score_window(current)
+    lookback_epochs = sorted({int(r["window_start_epoch"]) for r in rows})[
+        -replay_engine.EVIDENCE_LOOKBACK :
+    ]
+    recent = [row for row in rows if int(row["window_start_epoch"]) in set(lookback_epochs)]
+
+    simulation = (
+        run_drill(replay["windows"], decision_epoch) if include_simulation else None
+    )
+    return EvidenceBundle(
+        range_id=forecast.range_id,
+        account_id=forecast.account_id,
+        window_start_epoch=decision_epoch,
+        risk_score=forecast.risk_score,
+        risk_band=forecast.risk_band,
+        model_version=forecast.model_version,
+        feature_version=forecast.feature_version,
+        horizon_seconds=forecast.horizon_seconds,
+        evidence=forecast.evidence,
+        recent_windows=recent,
+        simulation=simulation,
+        tenant_account_id=forecast.account_id,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Human decision (simulated, audited)
+# --------------------------------------------------------------------------- #
+@app.post("/api/decision", response_model=DecisionRecord)
+def record_decision(request: DecisionRequest) -> DecisionRecord:
+    """Append a simulated decision to the audit log.
+
+    This endpoint deliberately has no side effect on any DDoS policy. It exists
+    so the demo can show the approval step and so every forecast a human acted
+    on is traceable to a model version.
+    """
+    try:
+        replay_engine.load_replay(request.replay_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown replay {request.replay_id!r}")
+
+    candidate = CANDIDATES_BY_KEY[request.policy_key]
+    record = DecisionRecord(
+        recorded_at_epoch=int(time.time()),
+        replay_id=request.replay_id,
+        decision_epoch=request.decision_epoch,
+        policy_key=candidate.key,
+        policy_name=candidate.name,
+        verdict=request.verdict,
+        operator=request.operator,
+        note=request.note,
+        model_version=request.model_version,
+        feature_version=_forecaster.feature_version,
+    )
+
+    PATHS.decisions.mkdir(parents=True, exist_ok=True)
+    with (PATHS.decisions / "decisions.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record.model_dump()) + "\n")
+    return record
+
+
+@app.get("/api/decisions")
+def list_decisions(limit: int = 50) -> dict:
+    path = PATHS.decisions / "decisions.jsonl"
+    if not path.exists():
+        return {"decisions": []}
+    bounded = max(1, min(limit, 500))
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    return {"decisions": [json.loads(line) for line in lines[-bounded:]][::-1]}
+
+
+# --------------------------------------------------------------------------- #
+def _replay_and_decision_epoch(
+    replay_id: str, decision_epoch: int | None
+) -> tuple[dict, int]:
+    """Load a replay and resolve the instant the operator is deciding at.
+
+    When unspecified, this is the first window DFSI warned about — the moment
+    the operator would actually have been looking at the dashboard. Falling
+    back to the last window keeps the endpoint usable on quiet scenarios.
+    """
+    try:
+        replay = replay_engine.load_replay(replay_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown replay {replay_id!r}")
+
+    epochs = sorted({int(row["window_start_epoch"]) for row in replay["windows"]})
+    if decision_epoch is not None:
+        if decision_epoch not in epochs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"epoch {decision_epoch} is not a window in this replay",
+            )
+        return replay, decision_epoch
+
+    buckets: dict[int, list[dict]] = {}
+    for row in replay["windows"]:
+        buckets.setdefault(int(row["window_start_epoch"]), []).append(row)
+    for epoch in epochs:
+        forecast = _forecaster.score_window(buckets[epoch])
+        if forecast.predicted_state == STATE_ABOUT_TO_START:
+            return replay, epoch
+    return replay, epochs[-1]

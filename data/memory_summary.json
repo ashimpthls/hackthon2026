@@ -1,0 +1,18 @@
+{
+  "scenario_set_version": "synthetic-v1",
+  "environment": "stage",
+  "episodes": 672,
+  "windows": 725760,
+  "label_counts": {
+    "1": 5265,
+    "0": 720495
+  },
+  "rows_by_scenario_type": {
+    "normal": 525960,
+    "gradual_buildup": 39960,
+    "recovery": 51840,
+    "flash_crowd": 60480,
+    "sustained_attack": 47520
+  },
+  "features_path": "/Users/suneel.kumarsonaker/netsec-ddos-shared-state-2/dfsi/data/features"
+}
