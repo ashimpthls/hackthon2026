@@ -5,8 +5,9 @@
   "type": "module",
   "description": "DFSI dashboard — timeline, evidence and trade-offs for the DDoS predictive lookout",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "setup-data": "node scripts/setup-data.js",
+    "dev": "npm run setup-data && vite",
+    "build": "npm run setup-data && tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
