@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterator
 
 from ..config import PATHS, STATE_ABOUT_TO_START, STATE_MONITORING_ONLY
+from ..forecaster.alerting import AlertTracker
 from ..forecaster.serve import ForecasterService
 
 log = logging.getLogger("dfsi.api.replay")
@@ -81,6 +82,10 @@ class ReplayState:
     first_warning_epoch: int | None = None
     onset_epoch: int | None = None
     bell_epoch: int | None = None
+    #: Debounces the per-window verdict, created on the first step from the
+    #: forecaster's own `min_consecutive` so the stream follows the same rule
+    #: the evaluation was measured under.
+    tracker: AlertTracker | None = None
 
     @property
     def total(self) -> int:
@@ -115,9 +120,17 @@ def step(state: ReplayState, forecaster: ForecasterService) -> dict:
     forecast = forecaster.score_window(rows)
     state.history.append(rows)
 
+    # A single window above threshold is not a warning: it takes
+    # `min_consecutive` in a row, exactly as in the evaluation behind the
+    # published head start and false-alarm figures. A window the forecaster
+    # could not score is never "above", so it breaks the run.
+    if state.tracker is None:
+        state.tracker = AlertTracker(forecaster.min_consecutive)
+    above = forecast.predicted_state == STATE_ABOUT_TO_START
+    warned = state.tracker.update(above)
+
     # Track when DFSI first warned and when the bell would actually ring, so
     # the UI can draw the lead-time gap that is the whole point of the project.
-    warned = forecast.predicted_state == STATE_ABOUT_TO_START
     if warned and state.first_warning_epoch is None:
         state.first_warning_epoch = epoch
     if any(int(row.get("is_onset", 0)) for row in rows) and state.onset_epoch is None:
@@ -131,6 +144,17 @@ def step(state: ReplayState, forecaster: ForecasterService) -> dict:
         else None
     )
 
+    dfsi_state = (
+        STATE_MONITORING_ONLY
+        if forecast.degraded
+        else (STATE_ABOUT_TO_START if warned else "QUIET")
+    )
+    # The gauge reads `forecast.predicted_state`, so it carries the debounced
+    # state; the raw single-window verdict stays available as `above_threshold`.
+    forecast_payload = forecast.to_dict()
+    forecast_payload["above_threshold"] = above
+    forecast_payload["predicted_state"] = dfsi_state
+
     aggregate = _aggregate(rows)
     return {
         "type": "window",
@@ -140,18 +164,14 @@ def step(state: ReplayState, forecaster: ForecasterService) -> dict:
         "total": state.total,
         "window_start_epoch": epoch,
         "traffic": aggregate,
-        "forecast": forecast.to_dict(),
+        "forecast": forecast_payload,
         "shared_state": {
             # What the existing Java service would be showing right now.
             "over_threshold": bool(max(int(r.get("range_over_threshold", 0)) for r in rows)),
             "declared": bool(max(int(r.get("declared", 0)) for r in rows)),
             "bell_epoch": state.bell_epoch,
         },
-        "dfsi_state": (
-            STATE_MONITORING_ONLY
-            if forecast.degraded
-            else (STATE_ABOUT_TO_START if warned else "QUIET")
-        ),
+        "dfsi_state": dfsi_state,
         "first_warning_epoch": state.first_warning_epoch,
         "onset_epoch": state.onset_epoch,
         "lead_seconds": lead,
