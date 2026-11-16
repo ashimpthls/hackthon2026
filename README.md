@@ -169,20 +169,51 @@ configured.
 
 ## Measured results
 
-Synthetic scenario set, stage thresholds, model version 4 at decision
-threshold 0.65:
+Synthetic scenario set, stage thresholds. Four weeks of traffic: the first is
+warm-up for the baselines, the model is fitted on the next, the decision
+threshold calibrated on the one after, and everything below is measured on the
+final week, which the model never saw (672 scenarios, 95 forecastable attacks).
+Decision threshold 0.55, evidence gate 3.0:
 
 | | DFSI | Threshold alarm (today) |
 |---|---|---|
-| Median head start | **125s** | 0s |
-| p10 head start | 40s | 0s |
-| Attacks caught early | **94.7%** (18/19) | 0% |
-| Late warnings | 0 | 19 |
-| False-alarm rate | 1.23% | 0% |
+| Median head start | **60s** | 0s |
+| p10 head start | 10s | 0s |
+| Attacks caught early | **98.9%** (94/95) | 0% |
+| Late warnings | 0 | 95 |
+| False-alarm rate | 2.7% | 0% |
 
-By scenario type: `gradual_buildup` 100% caught at a 210s median head start;
-`sustained_attack` 100% at 40s; `normal` 1.3% false alarms; `flash_crowd` is
-the one miss.
+One week and 95 attacks is a small sample: read these as estimates, not
+guarantees. The head start varies a lot by scenario type, and is mostly *early
+detection* rather than foresight for the fast ones: `gradual_buildup` is warned
+about a median 260s ahead, but `sustained_attack` only 30s and `pulse_wave` 10s,
+which is about the 30s start duration on this stage configuration.
+
+### The evidence gate
+
+The forecaster leans on context (recent attack history on the account) as well
+as traffic, so an ordinary flash crowd on an account attacked last week could
+alert with the traffic still inside its normal range. An alert therefore also
+needs **traffic evidence**: the strongest per-vector deviation must exceed 3 (the
+pipeline's own bar for an abnormal window). The risk score itself is untouched,
+and a withheld window still shows it, flagged `gated` with the reason. Missing
+data never suppresses an alert.
+
+On the same model and threshold, with the gate off versus on:
+
+| | no gate | gate |
+|---|---|---|
+| False-alarm rate | 5.9% | **2.7%** |
+| Flash-crowd false alarms | 25% | **5.6%** |
+| Attacks caught | 94/95 | 94/95 |
+| Median / p10 head start | 60s / 10s | 60s / 10s |
+
+The cost is small and worth knowing: `gradual_buildup`'s median head start moves
+from 270s to 260s, because a slow ramp is not alerted until its deviation passes
+the bar. The effect was measured on synthetic data only. A second-stage
+classifier trained to tell attacks from flash crowds was tried first and removed
+one point of flash-crowd false alarms, because the flash crowds that alert look
+attack-like on traffic; see `dfsi/forecaster/gate.py`.
 
 **How lead time is counted** — two rules, because getting either wrong moves the
 headline by tens of seconds:
@@ -193,6 +224,10 @@ headline by tens of seconds:
   wait as though it were foresight — a free 20s here, 290s in production. The
   incumbent's warning **is** the declaration, so its lead is zero by
   construction. That is the comparison, not a bug.
+- *A warning is credited when it can first be acted on.* It takes two windows in
+  a row above the threshold, and the head start is counted from the second, not
+  back to the first, because nobody can be told about a window before the next
+  one has been seen.
 - *Lead time is only defined where there was a runway.* `recovery` episodes open
   already over threshold, so there is no pre-attack history to forecast from.
   Those 20 scenarios are reported separately as `in_progress_detected` (100%
