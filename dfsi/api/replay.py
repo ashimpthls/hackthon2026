@@ -19,6 +19,7 @@ from typing import Iterator
 
 from ..config import PATHS, STATE_ABOUT_TO_START, STATE_MONITORING_ONLY
 from ..forecaster.alerting import AlertTracker
+from ..forecaster.lifecycle import AlertLifecycle, LifecyclePolicy
 from ..forecaster.serve import ForecasterService
 
 log = logging.getLogger("dfsi.api.replay")
@@ -86,6 +87,10 @@ class ReplayState:
     #: forecaster's own `min_consecutive` so the stream follows the same rule
     #: the evaluation was measured under.
     tracker: AlertTracker | None = None
+    #: One alert that escalates and clears, built on the same signal as
+    #: `tracker`. Additive: `dfsi_state` is unchanged and the lifecycle is
+    #: reported alongside it.
+    lifecycle: AlertLifecycle | None = None
 
     @property
     def total(self) -> int:
@@ -128,6 +133,16 @@ def step(state: ReplayState, forecaster: ForecasterService) -> dict:
         state.tracker = AlertTracker(forecaster.min_consecutive)
     above = forecast.predicted_state == STATE_ABOUT_TO_START
     warned = state.tracker.update(above)
+
+    # The lifecycle raises on the same debounce, so its first WARNING is the
+    # window `first_warning_epoch` below records. It scores the risk itself, not
+    # the verdict: escalation and hysteresis need the number, and `None` marks a
+    # window that could not be scored.
+    if state.lifecycle is None:
+        state.lifecycle = AlertLifecycle(
+            forecaster.bands, LifecyclePolicy(raise_after=forecaster.min_consecutive)
+        )
+    alert = state.lifecycle.update(epoch, forecast.risk_score)
 
     # Track when DFSI first warned and when the bell would actually ring, so
     # the UI can draw the lead-time gap that is the whole point of the project.
@@ -172,10 +187,16 @@ def step(state: ReplayState, forecaster: ForecasterService) -> dict:
             "bell_epoch": state.bell_epoch,
         },
         "dfsi_state": dfsi_state,
+        "alert": alert.to_dict(),
         "first_warning_epoch": state.first_warning_epoch,
         "onset_epoch": state.onset_epoch,
         "lead_seconds": lead,
     }
+
+
+def alert_summary(state: ReplayState) -> list[dict]:
+    """Every alert raised so far in this replay; empty if none or not yet stepped."""
+    return state.lifecycle.summary() if state.lifecycle is not None else []
 
 
 def _aggregate(rows: list[dict]) -> dict:

@@ -230,6 +230,9 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
                     else None
                 ),
                 "windows_streamed": state.cursor,
+                # One entry per incident, not per flicker: when each alert
+                # opened and closed, how high it peaked, whether it escalated.
+                "alerts": replay_engine.alert_summary(state),
             }
         )
 
