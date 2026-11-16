@@ -24,7 +24,6 @@ in-memory — restarting the API, or `reset()`, restores `raw.json`.
 from __future__ import annotations
 
 import copy
-import json
 import logging
 import threading
 import time
@@ -33,15 +32,11 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from ..config import HORIZON_WINDOWS, SharedStateThresholds, thresholds_for
+from .policy_db import DEFAULT_PACKET_BYTES, load_policy_db
 
 log = logging.getLogger("dfsi.policy_store")
 
 _WINDOWS_PER_MINUTE = 6
-
-#: Bytes per packet, used to convert a pps line to Mbps when raw.json does not
-#: say. Matches the generator's assumptions.
-_DEFAULT_PACKET_BYTES = {"udp": 1100, "tcp_syn": 64, "http": 700}
-
 
 @dataclass(frozen=True)
 class TypePolicy:
@@ -62,10 +57,12 @@ class PolicyStore:
     # ------------------------------------------------------------ loading
     @classmethod
     def from_file(cls, path: Path) -> "PolicyStore":
-        if not path.exists():
+        """Load and validate `path`; raises `PolicyDbError` if it is not usable."""
+        data = load_policy_db(path)
+        if data is None:
             log.warning("no policy db at %s; replays keep their recorded policy", path)
             return cls(None, source=None)
-        return cls(json.loads(path.read_text()), source=str(path))
+        return cls(data, source=str(path))
 
     def _reset_locked(self) -> None:
         self._policies: dict[int, dict[str, TypePolicy]] = {}
@@ -81,7 +78,7 @@ class PolicyStore:
                         pps=float(spec["max_threshold_pps"]),
                         mbps=float(spec["max_threshold_mbps"]),
                         mean_packet_bytes=int(
-                            spec.get("mean_packet_bytes", _DEFAULT_PACKET_BYTES.get(traffic_type, 1000))
+                            spec.get("mean_packet_bytes", DEFAULT_PACKET_BYTES.get(traffic_type, 1000))
                         ),
                     )
                     for traffic_type, spec in rng.get("traffic_types", {}).items()

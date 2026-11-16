@@ -12,11 +12,10 @@ API starts; edit raw.json and restart to change it.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
-from .serve import RiskBands
+from ..rehearsal.policy_db import load_policy_db
 
 log = logging.getLogger("dfsi.forecaster.range_thresholds")
 
@@ -24,23 +23,19 @@ log = logging.getLogger("dfsi.forecaster.range_thresholds")
 def load_range_thresholds(path: Path) -> dict[int, float]:
     """`range_id -> risk_threshold` for every range in raw.json that sets one.
 
-    A missing file means no overrides. A value the risk bands cannot be built
-    from raises: silently scoring a range on the model's threshold when the
-    file asked for another would misreport that range's warnings.
+    A missing file means no overrides. The file is validated as a whole by
+    `policy_db.load_policy_db`, which raises `PolicyDbError` (a `ValueError`)
+    naming the file and range: silently scoring a range on the model's
+    threshold when the file asked for another would misreport that range's
+    warnings.
     """
-    if not path.exists():
+    data = load_policy_db(path)
+    if data is None:
         log.warning("no policy db at %s; every range uses the model's threshold", path)
         return {}
-    thresholds: dict[int, float] = {}
-    for account in json.loads(path.read_text()).get("accounts", []):
-        for rng in account.get("ranges", []):
-            if rng.get("risk_threshold") is None:
-                continue
-            range_id = int(rng["range_id"])
-            try:
-                value = float(rng["risk_threshold"])
-                RiskBands.for_threshold(value)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{path}: range {range_id} has an invalid risk_threshold: {exc}") from exc
-            thresholds[range_id] = value
-    return thresholds
+    return {
+        int(rng["range_id"]): float(rng["risk_threshold"])
+        for account in data["accounts"]
+        for rng in account["ranges"]
+        if rng.get("risk_threshold") is not None
+    }

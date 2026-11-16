@@ -121,6 +121,19 @@ API, or **Reset to raw.json** (`POST /api/policies/reset`), restores the seed.
 `GET /api/policies` shows the store and its history. `DFSI_POLICY_DB` points
 the store at a different file.
 
+`raw.json` is validated once, when the API starts, and every problem is listed
+together, named by range and traffic type: a policy line that is zero or
+negative (which would make a calm replay declare an attack in almost every
+window), a missing key, a repeated `range_id`, an Mbps line that disagrees with
+its pps line, an unusable `risk_threshold`, or malformed JSON. A bad file stops
+the API with that list instead of starting on wrong values.
+
+`raw.json` and the generator in `dfsi/memory/scenarios.py` describe the same
+ranges. The replays, baselines and model come from the generator; `raw.json`
+overrides the policy lines and carries each range's `risk_threshold`.
+`tests/test_raw_json_sync.py` fails if the two drift apart, so change both
+together (and rebuild Memory).
+
 Each range can also set its own `risk_threshold`: the risk score at or above
 which a window counts towards a DFSI warning on that range. A range without one
 uses the model's calibrated threshold. It moves the dashed line on the timeline,
