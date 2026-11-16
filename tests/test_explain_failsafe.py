@@ -112,7 +112,13 @@ def test_a_down_forecaster_yields_monitoring_only_end_to_end(monkeypatch):
 
     monkeypatch.setattr(api, "_forecaster", ForecasterService(Path("/nonexistent/forecaster.pkl")))
     monkeypatch.setattr(api, "_orchestrator", ExplainerOrchestrator(api_key=None))
-    replay = {"scenario_type": "sustained_attack", "windows": attack_windows()}
+    # The shape `load_replay` returns, not the smallest dict that happens to work.
+    replay = {
+        "replay_id": "sustained_attack__test",
+        "scenario_type": "sustained_attack",
+        "range_id": RANGE_ID,
+        "windows": attack_windows(),
+    }
 
     bundle = api._build_bundle(replay, DECISION, include_simulation=True)
     assert bundle.risk_score is None  # the forecaster said nothing
