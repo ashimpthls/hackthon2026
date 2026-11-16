@@ -981,3 +981,17 @@ input:disabled {
 .decision-receipt button {
   margin-top: 8px;
 }
+
+/* Whether approving "Tighten" changes a row */
+.outcome-applies {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.outcome-none {
+  color: var(--text-faint);
+}
+
+.no-change-note button {
+  margin-top: 6px;
+}

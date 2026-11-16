@@ -136,6 +136,10 @@ export default function App() {
         setFocusEpoch(event.window_start_epoch)
         break
       case 'summary':
+        // The stream ends a few windows after the bell, which can be a lull
+        // (between pulses, say). The moment an operator decides at is DFSI's
+        // warning, which is also the API's default, so settle the focus there.
+        if (event.first_warning_epoch !== null) setFocusEpoch(event.first_warning_epoch)
         setRuns((previous) => ({
           ...previous,
           [event.replay_id]: [...(previous[event.replay_id] ?? []), event].slice(-5),
@@ -192,18 +196,32 @@ export default function App() {
     }
   }, [focusEpoch, selectedReplay])
 
-  const runDrill = useCallback(async () => {
-    if (!selectedReplay) return
-    setDrillLoading(true)
-    setDrillError(null)
-    try {
-      setDrill(await api.drill(selectedReplay, focusEpoch ?? undefined))
-    } catch (error) {
-      setDrillError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setDrillLoading(false)
-    }
-  }, [focusEpoch, selectedReplay])
+  const runDrillAt = useCallback(
+    async (epoch: number | null) => {
+      if (!selectedReplay) return
+      setDrillLoading(true)
+      setDrillError(null)
+      try {
+        setDrill(await api.drill(selectedReplay, epoch ?? undefined))
+      } catch (error) {
+        setDrillError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setDrillLoading(false)
+      }
+    },
+    [selectedReplay],
+  )
+
+  const runDrill = useCallback(() => runDrillAt(focusEpoch), [focusEpoch, runDrillAt])
+
+  // Move the decision to the window DFSI warned at and re-run the drill there,
+  // for when the operator is looking at a moment with nothing to tighten.
+  const decideAtWarning = useCallback(() => {
+    const warning = windows[windows.length - 1]?.first_warning_epoch ?? null
+    if (warning === null) return
+    setFocusEpoch(warning)
+    void runDrillAt(warning)
+  }, [runDrillAt, windows])
 
   const decide = useCallback(
     async (verdict: 'approved' | 'rejected' | 'changed', note: string) => {
@@ -353,6 +371,8 @@ uvicorn dfsi.api.app:app --port 8000`}
             policyPlan={drill?.policy_plan ?? null}
             modelVersion={health?.model_version ?? 'unknown'}
             decisionEpoch={drill?.decision_epoch ?? focusEpoch}
+            warningEpoch={latest?.first_warning_epoch ?? null}
+            onDecideAtWarning={decideAtWarning}
             onDecide={decide}
             onReplay={start}
             canReplay={!running}
