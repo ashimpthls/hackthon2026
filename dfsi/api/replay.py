@@ -110,14 +110,20 @@ def build_state(replay: dict) -> ReplayState:
     )
 
 
-def step(state: ReplayState, forecaster: ForecasterService) -> dict:
-    """Advance the replay by one 10-second window and return the event."""
+def step(
+    state: ReplayState, forecaster: ForecasterService, threshold: float | None = None
+) -> dict:
+    """Advance the replay by one 10-second window and return the event.
+
+    `threshold` is the range's decision threshold from raw.json (`None`: the
+    model's).
+    """
     if state.finished:
         raise StopIteration
     epoch, rows = state.instants[state.cursor]
     state.cursor += 1
 
-    forecast = forecaster.score_window(rows)
+    forecast = forecaster.score_window(rows, threshold)
     state.history.append(rows)
 
     # A single window above threshold is not a warning: it takes
@@ -256,9 +262,9 @@ def flat_history(state: ReplayState) -> list[dict]:
 
 
 def iter_replay(
-    replay_id: str, forecaster: ForecasterService
+    replay_id: str, forecaster: ForecasterService, threshold: float | None = None
 ) -> Iterator[tuple[ReplayState, dict]]:
     """Walk an entire replay, yielding the state and each event."""
     state = build_state(load_replay(replay_id))
     while not state.finished:
-        yield state, step(state, forecaster)
+        yield state, step(state, forecaster, threshold)

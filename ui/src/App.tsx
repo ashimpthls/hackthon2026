@@ -19,6 +19,7 @@ import type {
   PolicyKey,
   PolicySnapshot,
   ReplayEvent,
+  RiskThresholds,
   SummaryEvent,
   WindowEvent,
 } from './lib/types'
@@ -78,6 +79,14 @@ export default function App() {
   useEffect(() => {
     void refreshPolicies()
   }, [refreshPolicies])
+
+  // Per-range decision thresholds, as configured in raw.json.
+  const [riskThresholds, setRiskThresholds] = useState<RiskThresholds | null>(null)
+  useEffect(() => {
+    api.riskThresholds().then(setRiskThresholds, () => {
+      // Informational: without it the timeline uses the model card's threshold.
+    })
+  }, [])
 
   // ---------------------------------------------------------------- boot
   useEffect(() => {
@@ -235,6 +244,9 @@ export default function App() {
     ],
   )
 
+  const selectedRangeId =
+    catalogue.find((entry) => entry.replay_id === selectedReplay)?.range_id ?? null
+
   const resetPolicies = useCallback(async () => {
     setPolicyBusy(true)
     try {
@@ -250,6 +262,11 @@ export default function App() {
   const focused =
     windows.find((window) => window.window_start_epoch === focusEpoch) ?? latest
   const recommended = briefing?.advisor.output.recommended_policy_key ?? null
+  const rangeThreshold =
+    (selectedRangeId !== null ? riskThresholds?.ranges[String(selectedRangeId)] : undefined) ??
+    riskThresholds?.model_default ??
+    modelCard?.decision_threshold ??
+    0.25
 
   if (bootError) {
     return (
@@ -294,7 +311,7 @@ uvicorn dfsi.api.app:app --port 8000`}
             bellRung={Boolean(latest?.shared_state.declared)}
           />
           <PolicyPanel
-            rangeId={catalogue.find((entry) => entry.replay_id === selectedReplay)?.range_id ?? null}
+            rangeId={selectedRangeId}
             snapshot={policies}
             runs={selectedReplay ? (runs[selectedReplay] ?? []) : []}
             onReset={resetPolicies}
@@ -307,7 +324,7 @@ uvicorn dfsi.api.app:app --port 8000`}
         <div className="column-right">
           <Timeline
             windows={windows}
-            threshold={modelCard?.decision_threshold ?? 0.25}
+            threshold={rangeThreshold}
             selectedEpoch={focusEpoch}
             onScrub={(epoch) => {
               if (!running) setFocusEpoch(epoch)

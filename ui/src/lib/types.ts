@@ -24,6 +24,14 @@ export interface Forecast {
   evidence: EvidenceItem[]
   degraded: boolean
   degraded_reason: string | null
+  /** The decision threshold this window's band and state were read against. */
+  decision_threshold?: number | null
+}
+
+/** Per-range `risk_threshold` from raw.json; a range not listed follows the model. */
+export interface RiskThresholds {
+  model_default: number
+  ranges: Record<string, number>
 }
 
 export interface TrafficSummary {

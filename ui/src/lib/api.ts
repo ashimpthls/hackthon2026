@@ -10,6 +10,7 @@ import type {
   PolicyKey,
   PolicySnapshot,
   ReplayEvent,
+  RiskThresholds,
 } from './types'
 
 async function getJson<T>(path: string): Promise<T> {
@@ -80,6 +81,7 @@ export const api = {
   decisions: () => getJson<{ decisions: DecisionRecord[] }>('/api/decisions'),
   policies: () => getJson<PolicySnapshot>('/api/policies'),
   resetPolicies: () => postJson<PolicySnapshot>('/api/policies/reset', {}),
+  riskThresholds: () => getJson<RiskThresholds>('/api/risk-thresholds'),
 }
 
 /**

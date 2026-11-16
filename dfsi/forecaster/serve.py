@@ -107,6 +107,9 @@ class Forecast:
     evidence: list[dict] = field(default_factory=list)
     degraded: bool = False
     degraded_reason: str | None = None
+    #: The decision threshold this forecast's band and state were judged
+    #: against: the range's own, if one is set, otherwise the model's.
+    decision_threshold: float | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -122,6 +125,7 @@ class Forecast:
             "evidence": self.evidence,
             "degraded": self.degraded,
             "degraded_reason": self.degraded_reason,
+            "decision_threshold": self.decision_threshold,
         }
 
 
@@ -195,12 +199,16 @@ class ForecasterService:
         return self._model is not None
 
     # ------------------------------------------------------------------ #
-    def score_window(self, windows: list[dict]) -> Forecast:
+    def score_window(self, windows: list[dict], threshold: float | None = None) -> Forecast:
         """Score one instant for one range.
 
         `windows` holds the per-traffic-type rows for a single
         (range_id, window_start_epoch). The range-level risk is the maximum
         across its traffic types: one vector is enough to ring the bell.
+
+        `threshold` overrides the model's decision threshold for this range.
+        The score itself never depends on it, only the band and the state the
+        score is read as. `None` uses the model's calibrated threshold.
         """
         if not windows:
             raise ValueError("score_window requires at least one traffic-type row")
@@ -210,40 +218,55 @@ class ForecasterService:
         range_id = int(head["range_id"])
         account_id = int(head.get("account_id", -1))
 
+        if threshold is None:
+            threshold, bands = self.decision_threshold, self.bands
+        else:
+            threshold = float(threshold)
+            bands = RiskBands.for_threshold(threshold)
+
         if not self.ready:
-            return self._degraded(epoch, range_id, account_id, self.load_error or "model not loaded")
+            return self._degraded(
+                epoch, range_id, account_id, self.load_error or "model not loaded", threshold
+            )
 
         try:
             frame = pd.DataFrame(windows)
             missing = [c for c in self._features if c not in frame.columns]
             if missing:
                 return self._degraded(
-                    epoch, range_id, account_id, f"missing features {missing}"
+                    epoch, range_id, account_id, f"missing features {missing}", threshold
                 )
             scores = self._model.predict_proba(frame[self._features])[:, 1]
             best = int(scores.argmax())
             score = float(scores[best])
         except Exception as exc:
             log.exception("scoring failed for range %s", range_id)
-            return self._degraded(epoch, range_id, account_id, f"scoring error: {exc}")
+            return self._degraded(
+                epoch, range_id, account_id, f"scoring error: {exc}", threshold
+            )
 
-        band = self.bands.band(score)
         return Forecast(
             window_start_epoch=epoch,
             range_id=range_id,
             account_id=account_id,
             risk_score=score,
-            risk_band=band,
-            predicted_state=(
-                STATE_ABOUT_TO_START if score >= self.decision_threshold else "QUIET"
-            ),
+            risk_band=bands.band(score),
+            predicted_state=STATE_ABOUT_TO_START if score >= threshold else "QUIET",
             horizon_seconds=HORIZON_SECONDS,
             model_version=self.model_version,
             feature_version=self.feature_version,
             evidence=self.build_evidence(windows[best], score),
+            decision_threshold=threshold,
         )
 
-    def _degraded(self, epoch: int, range_id: int, account_id: int, reason: str) -> Forecast:
+    def _degraded(
+        self,
+        epoch: int,
+        range_id: int,
+        account_id: int,
+        reason: str,
+        threshold: float | None = None,
+    ) -> Forecast:
         """Fail safe: monitoring-only, no risk number, never 'low risk'."""
         return Forecast(
             window_start_epoch=epoch,
@@ -258,6 +281,7 @@ class ForecasterService:
             evidence=[],
             degraded=True,
             degraded_reason=reason,
+            decision_threshold=threshold if threshold is not None else self.decision_threshold,
         )
 
     # ------------------------------------------------------------------ #

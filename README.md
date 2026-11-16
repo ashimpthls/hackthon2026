@@ -121,6 +121,13 @@ API, or **Reset to raw.json** (`POST /api/policies/reset`), restores the seed.
 `GET /api/policies` shows the store and its history. `DFSI_POLICY_DB` points
 the store at a different file.
 
+Each range can also set its own `risk_threshold`: the risk score at or above
+which a window counts towards a DFSI warning on that range. A range without one
+uses the model's calibrated threshold. It moves the dashed line on the timeline,
+the risk bands, the warning, and so the head start. It is read when the API
+starts, so edit `raw.json` and restart to change it. `GET /api/risk-thresholds`
+shows what is in effect.
+
 ### The agents
 
 Set `ANTHROPIC_API_KEY` before starting the API to run the two explainers on

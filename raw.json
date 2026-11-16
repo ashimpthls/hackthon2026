@@ -6,6 +6,7 @@
         {
           "range_id": 90110001,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.45,
           "traffic_types": {
             "udp": {
               "base_pps": 14000.0,
@@ -33,6 +34,7 @@
         {
           "range_id": 90110002,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 9000.0,
@@ -65,6 +67,7 @@
         {
           "range_id": 90110003,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 31000.0,
@@ -97,6 +100,7 @@
         {
           "range_id": 90110004,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.45,
           "traffic_types": {
             "udp": {
               "base_pps": 6500.0,
@@ -133,6 +137,7 @@
       "tcp_syn": 64,
       "http": 700
     },
-    "note": "max_threshold_pps = base_pps * 5.0 (policy_headroom). mbps = pps * mean_packet_bytes * 8 / 1_000_000"
+    "note": "max_threshold_pps = base_pps * 5.0 (policy_headroom). mbps = pps * mean_packet_bytes * 8 / 1_000_000",
+    "risk_threshold_note": "risk_threshold: the forecaster risk score at or above which a window counts towards a DFSI warning on this range (strictly between 0 and 1). Omit it to use the model's calibrated threshold. Read when the API starts."
   }
 }

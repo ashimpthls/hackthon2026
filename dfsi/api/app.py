@@ -38,6 +38,7 @@ from ..config import (
     thresholds_for,
 )
 from ..forecaster.alerting import AlertTracker
+from ..forecaster.range_thresholds import load_range_thresholds
 from ..forecaster.serve import ForecasterService
 from ..rehearsal.policy_advisor import PolicyPlan, suggest_policy
 from ..rehearsal.policy_store import PolicyStore, apply_policy
@@ -107,6 +108,13 @@ app.add_middleware(
 _forecaster = ForecasterService()
 _orchestrator = ExplainerOrchestrator()
 _policy_store = PolicyStore.from_file(PATHS.policy_db)
+#: Per-range `risk_threshold` from raw.json; ranges not listed follow the model.
+_range_thresholds = load_range_thresholds(PATHS.policy_db)
+
+
+def _threshold_for(range_id: int) -> float:
+    """The decision threshold a range is read against."""
+    return _range_thresholds.get(int(range_id), _forecaster.decision_threshold)
 
 
 def _load_replay(replay_id: str) -> dict:
@@ -143,6 +151,18 @@ def reset_policies() -> dict:
     """Restore the store to its seed (raw.json)."""
     _policy_store.reset()
     return _policy_store.snapshot()
+
+
+# --------------------------------------------------------------------------- #
+# Per-range decision thresholds
+# --------------------------------------------------------------------------- #
+@app.get("/api/risk-thresholds")
+def list_risk_thresholds() -> dict:
+    """The model's decision threshold, and each range's `risk_threshold` from raw.json."""
+    return {
+        "model_default": _forecaster.decision_threshold,
+        "ranges": {str(k): v for k, v in sorted(_range_thresholds.items())},
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -236,12 +256,15 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
                 "forecaster_ready": _forecaster.ready,
                 "policy_version": policy_version,
                 "policy": policy,
+                "decision_threshold": _threshold_for(state.range_id),
             }
         )
         windows_after_bell = 0
         try:
             while not state.finished:
-                event = await asyncio.to_thread(replay_engine.step, state, _forecaster)
+                event = await asyncio.to_thread(
+                    replay_engine.step, state, _forecaster, _threshold_for(state.range_id)
+                )
                 yield _sse(event)
 
                 if state.bell_epoch is not None:
@@ -346,7 +369,7 @@ def _build_bundle(
             status_code=400, detail=f"epoch {decision_epoch} is not a window boundary"
         )
 
-    forecast = _forecaster.score_window(current)
+    forecast = _forecaster.score_window(current, _threshold_for(int(replay["range_id"])))
     lookback_epochs = sorted({int(r["window_start_epoch"]) for r in rows})[
         -replay_engine.EVIDENCE_LOOKBACK :
     ]
@@ -526,8 +549,9 @@ def _replay_and_decision_epoch(
     # The same debounce the stream applies, so "the first window DFSI warned
     # about" is the window the dashboard actually raised the warning at.
     tracker = AlertTracker(_forecaster.min_consecutive)
+    threshold = _threshold_for(int(replay["range_id"]))
     for epoch in epochs:
-        forecast = _forecaster.score_window(buckets[epoch])
+        forecast = _forecaster.score_window(buckets[epoch], threshold)
         if tracker.update(forecast.predicted_state == STATE_ABOUT_TO_START):
             return replay, epoch
     return replay, epochs[-1]
