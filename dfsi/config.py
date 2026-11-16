@@ -161,8 +161,9 @@ MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", PATHS.mlruns.as_uri())
 MLFLOW_EXPERIMENT = os.getenv("DFSI_MLFLOW_EXPERIMENT", "dfsi-forecaster")
 REGISTERED_MODEL_NAME = "dfsi-onset-forecaster"
 
-# Risk-score bands used by the UI and by the Shared State hint. The agents are
-# explicitly forbidden from producing these numbers — ML owns them.
-RISK_BAND_WATCH = 0.35
-RISK_BAND_WARN = 0.60
-RISK_BAND_CRITICAL = 0.80
+# Risk-score bands (calm / watch / warn / critical) are deliberately *not*
+# constants here. The decision threshold is relearned on every retrain, so a
+# fixed scale drifts out of step with it and the band shown can contradict the
+# state raised. They are derived from each model's own threshold; see
+# `forecaster.serve.RiskBands`. The agents are explicitly forbidden from
+# producing these numbers — ML owns them.
