@@ -15,7 +15,7 @@ import pytest
 
 from conftest import EPOCH, RANGE_ID
 from dfsi.api import replay as replay_engine
-from dfsi.config import PATHS
+from dfsi.config import PATHS, STATE_ABOUT_TO_START
 from dfsi.forecaster.range_thresholds import load_range_thresholds
 from dfsi.forecaster.serve import ForecasterService
 from test_alerting import ScriptedForecaster, make_replay
@@ -134,6 +134,28 @@ def test_the_counterfactual_is_offered_against_the_range_threshold(tmp_path, mon
     assert service.score_window(rows, 0.3).counterfactual == {"threshold": 0.3}  # 0.4 alerts at 0.3
     assert service.score_window(rows, 0.5).counterfactual is None  # ... but not at 0.5
     assert seen == [0.3]
+
+
+def test_the_evidence_gate_judges_above_against_the_range_threshold(tmp_path, monkeypatch):
+    service = ForecasterService(tmp_path / "missing.pkl")
+    service._model = ConstantModel(0.4)
+    service._features = ["growth_pps_60s"]
+    service.evidence_gate_deviation = 3.0
+    monkeypatch.setattr(service, "build_evidence", lambda row, score: [])
+    monkeypatch.setattr(service, "_counterfactual", lambda *a, **k: None)
+    base = dict(make_replay(1)["windows"][0], growth_pps_60s=1.0)
+
+    # 0.4 is below the model's 0.55, so there is nothing to gate ...
+    quiet = service.score_window([dict(base, baseline_deviation_pps_max_hour=1.0)])
+    assert not quiet.gated and quiet.predicted_state == "QUIET"
+    # ... but above a range's 0.3: without traffic evidence it is withheld, and
+    # the reason quotes the range's threshold, not the model's.
+    withheld = service.score_window([dict(base, baseline_deviation_pps_max_hour=1.0)], 0.3)
+    assert withheld.gated and withheld.predicted_state == "QUIET" and withheld.risk_band == "watch"
+    assert "above the 0.30 threshold" in withheld.gate_reason
+    # With evidence behind it, the same score alerts on that range.
+    backed = service.score_window([dict(base, baseline_deviation_pps_max_hour=5.0)], 0.3)
+    assert not backed.gated and backed.predicted_state == STATE_ABOUT_TO_START
 
 
 def test_no_range_threshold_uses_the_model():

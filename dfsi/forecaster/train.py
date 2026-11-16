@@ -37,6 +37,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import GroupShuffleSplit
 
 from ..config import (
+    ANOMALY_DEVIATION_THRESHOLD,
     CALIBRATION_WEEKS,
     FEATURE_VERSION,
     HORIZON_SECONDS,
@@ -48,6 +49,7 @@ from ..config import (
     thresholds_for,
 )
 from ..memory.features import FEATURE_COLUMNS, GROUP_COLUMN, LABEL_COLUMN
+from .gate import EVIDENCE_FEATURE, apply_gate
 from .metrics import evaluate, fixed_threshold_baseline, lead_time_histogram, scenario_outcomes
 
 log = logging.getLogger("dfsi.forecaster")
@@ -105,6 +107,11 @@ class TrainConfig:
     split: str = "time"
     test_weeks: int = TEST_WEEKS
     calibration_weeks: int = CALIBRATION_WEEKS
+    #: An alert needs traffic that is abnormal for the hour: the strongest
+    #: per-vector deviation must exceed this robust z-score (see `gate`). The
+    #: pipeline's own bar for an abnormal window by default; `None` disables it.
+    #: Applied on top of the calibrated threshold, not part of calibrating it.
+    evidence_gate_deviation: float | None = ANOMALY_DEVIATION_THRESHOLD
 
 
 def assert_no_leakage(columns: list[str]) -> None:
@@ -216,7 +223,12 @@ def calibrate_threshold(
     """
     frame = calibration_frame.copy()
     frame["risk_score"] = model.predict_proba(frame[list(FEATURE_COLUMNS)])[:, 1]
-
+    # Deliberately the raw risk score, not the gated one. The threshold is a
+    # property of the model; the evidence gate is a second condition applied on
+    # top of it. Sweeping the gated score was tried and is unstable: the gate
+    # makes the false-alarm curve nearly flat across thresholds, so "lowest
+    # threshold within budget" lurched from 0.85 to 0.15 for a one-point change
+    # in the budget (and gave up 5 of 95 attacks at the stricter setting).
     sweep: list[dict] = []
     for threshold in np.round(np.arange(0.05, 0.96, 0.05), 2):
         result = evaluate(frame, "risk_score", float(threshold), config.min_consecutive)
@@ -353,12 +365,16 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
 
     test_frame["risk_score"] = model.predict_proba(x_test)[:, 1]
     test_frame["baseline_score"] = fixed_threshold_baseline(test_frame)
+    test_frame["alert_score"] = apply_gate(test_frame, "risk_score", config.evidence_gate_deviation)
 
-    dfsi_eval = evaluate(test_frame, "risk_score", threshold, config.min_consecutive)
+    dfsi_eval = evaluate(test_frame, "alert_score", threshold, config.min_consecutive)
+    # The same model and threshold with the gate off, so what the gate buys (and
+    # costs) is on the record rather than asserted.
+    ungated_eval = evaluate(test_frame, "risk_score", threshold, config.min_consecutive)
     # The bell needs no debounce — persistence is already baked into the start
     # duration it waited out — so the incumbent is scored on a single window.
     base_eval = evaluate(test_frame, "baseline_score", 1.0, min_consecutive=1)
-    outcomes = scenario_outcomes(test_frame, "risk_score", threshold, config.min_consecutive)
+    outcomes = scenario_outcomes(test_frame, "alert_score", threshold, config.min_consecutive)
 
     window_metrics = {
         "roc_auc": float(roc_auc_score(y_test, test_frame["risk_score"]))
@@ -384,6 +400,8 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
         "threshold_sweep": sweep,
         "window_metrics": window_metrics,
         "dfsi": asdict(dfsi_eval),
+        "dfsi_without_gate": asdict(ungated_eval),
+        "evidence_gate": _describe_gate(test_frame, threshold, config),
         "fixed_threshold_baseline": asdict(base_eval),
         "lead_time_histogram": lead_time_histogram(outcomes),
         "feature_importance": dict(
@@ -427,9 +445,25 @@ def _per_type_breakdown(
 ) -> dict:
     out: dict[str, dict] = {}
     for scenario_type, group in test_frame.groupby("scenario_type"):
-        result = evaluate(group, "risk_score", threshold, config.min_consecutive)
+        result = evaluate(group, "alert_score", threshold, config.min_consecutive)
         out[str(scenario_type)] = asdict(result)
     return out
+
+
+def _describe_gate(test_frame: pd.DataFrame, threshold: float, config: TrainConfig) -> dict:
+    """What the evidence gate was set to and how many alerting windows it withheld."""
+    above = test_frame["risk_score"] >= threshold
+    withheld = above & (test_frame["alert_score"] < threshold)
+    return {
+        "min_deviation": config.evidence_gate_deviation,
+        "feature": EVIDENCE_FEATURE,
+        "windows_above_threshold": int(above.sum()),
+        "windows_withheld": int(withheld.sum()),
+        "per_scenario_type_without_gate": {
+            str(kind): asdict(evaluate(group, "risk_score", threshold, config.min_consecutive))
+            for kind, group in test_frame.groupby("scenario_type")
+        },
+    }
 
 
 def _save_local_model(model, report: dict) -> None:
@@ -447,6 +481,7 @@ def _save_local_model(model, report: dict) -> None:
         "mlflow_run_id": report.get("mlflow_run_id"),
         "feature_importance": report["feature_importance"],
         "feature_reference": report["feature_reference"],
+        "evidence_gate_deviation": report["evidence_gate"]["min_deviation"],
     }
     with (PATHS.models / "forecaster.pkl").open("wb") as handle:
         pickle.dump(payload, handle)
@@ -530,6 +565,19 @@ def main() -> None:
         default=TrainConfig.split,
         help="time: whole weeks, test on the latest (default); scenario: random whole scenarios",
     )
+    parser.add_argument(
+        "--evidence-gate",
+        type=float,
+        default=TrainConfig.evidence_gate_deviation,
+        metavar="DEVIATION",
+        help="an alert needs traffic more abnormal than this robust z-score "
+        f"(default {ANOMALY_DEVIATION_THRESHOLD})",
+    )
+    parser.add_argument(
+        "--no-evidence-gate",
+        action="store_true",
+        help="let the risk score alone raise alerts, as before the gate existed",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -540,6 +588,7 @@ def main() -> None:
             false_alarm_budget=args.false_alarm_budget,
             calibrate=not args.no_calibrate,
             split=args.split,
+            evidence_gate_deviation=None if args.no_evidence_gate else args.evidence_gate,
         ),
         environment=args.env,
     )
@@ -549,6 +598,12 @@ def main() -> None:
                 "decision_threshold": report["decision_threshold"],
                 "split": report["split"],
                 "dfsi": report["dfsi"],
+                "dfsi_without_gate": report["dfsi_without_gate"],
+                "evidence_gate": {
+                    k: v
+                    for k, v in report["evidence_gate"].items()
+                    if k != "per_scenario_type_without_gate"
+                },
                 "baseline": report["fixed_threshold_baseline"],
                 "window_metrics": report["window_metrics"],
                 "per_scenario_type": {

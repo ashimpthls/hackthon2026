@@ -22,6 +22,13 @@ a human actually experiences:
   COOLING for `cooldown_windows` more. A breach in that time **re-opens the same
   alert** (same id) instead of raising a new one, so one incident is one alert.
 
+The evidence gate (`gate`) applies here too. A window whose score is above the
+line but whose traffic gives no support (`evidence=False`) is a breach nobody
+can corroborate, so it can neither raise, escalate nor re-open an alert. It does
+not clear one either: an open alert is held by its score like any other window.
+Without this the lifecycle would open alerts on exactly the windows the gate
+withholds, and the dashboard would say "quiet" while an alert is open.
+
 A window the forecaster could not score is *unknown*, and unknown never means
 all-clear. It breaks a run toward raising or escalating, because a gap cannot
 confirm consecutive breaches (the same rule as `AlertTracker`), but it never
@@ -143,16 +150,21 @@ class AlertLifecycle:
     def _current(self) -> dict | None:
         return self._alerts[-1] if self.is_open else None
 
-    def update(self, epoch: int, score: float | None) -> AlertStatus:
-        """Advance one window. `score=None` means the window could not be scored."""
+    def update(self, epoch: int, score: float | None, evidence: bool = True) -> AlertStatus:
+        """Advance one window. `score=None` means the window could not be scored.
+
+        `evidence=False` marks a score above threshold that the traffic does not
+        back (the evidence gate withheld it): it cannot raise, escalate or
+        re-open an alert, and it does not count toward clearing one either.
+        """
         if score is None or not math.isfinite(score):
             # Breaks a run toward raising/escalating; never advances clearing.
             self._warn_run = self._crit_run = 0
             return self._status(None, degraded=True)
 
         bands, policy = self.bands, self.policy
-        above_warn = score >= bands.warn
-        above_crit = score >= bands.critical
+        above_warn = evidence and score >= bands.warn
+        above_crit = evidence and score >= bands.critical
         holds = score >= bands.warn * policy.clear_ratio
         event: str | None = None
         previous = self.state

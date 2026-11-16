@@ -31,6 +31,7 @@ from ..config import (
 )
 from ..memory.features import FEATURE_COLUMNS
 from .counterfactual import find_counterfactual
+from .gate import EVIDENCE_FEATURE, has_traffic_evidence
 
 log = logging.getLogger("dfsi.forecaster.serve")
 
@@ -111,6 +112,11 @@ class Forecast:
     counterfactual: dict | None = None
     degraded: bool = False
     degraded_reason: str | None = None
+    #: The risk score is above the decision threshold but there is no traffic
+    #: evidence to back an alert (see `gate`), so none is raised. The score is
+    #: still reported, honestly, and `gate_reason` says why nothing fired.
+    gated: bool = False
+    gate_reason: str | None = None
     #: The decision threshold this forecast's band and state were judged
     #: against: the range's own, if one is set, otherwise the model's.
     decision_threshold: float | None = None
@@ -130,6 +136,8 @@ class Forecast:
             "counterfactual": self.counterfactual,
             "degraded": self.degraded,
             "degraded_reason": self.degraded_reason,
+            "gated": self.gated,
+            "gate_reason": self.gate_reason,
             "decision_threshold": self.decision_threshold,
         }
 
@@ -154,6 +162,9 @@ class ForecasterService:
         self.decision_threshold = 0.55
         self.bands = RiskBands.for_threshold(self.decision_threshold)
         self.min_consecutive = 2
+        #: Strongest per-vector deviation an alert needs, or `None` for no gate.
+        #: Models saved before the gate existed have none, and behave as before.
+        self.evidence_gate_deviation: float | None = None
         self.load_error: str | None = None
         self._load()
 
@@ -182,6 +193,12 @@ class ForecasterService:
             # refuse to score (degraded) rather than label risk on a broken scale.
             self.bands = RiskBands.for_threshold(self.decision_threshold)
             self.min_consecutive = int(payload.get("min_consecutive", 2))
+            gate = payload.get("evidence_gate_deviation")
+            if gate is not None:
+                gate = float(gate)
+                if not math.isfinite(gate) or gate < 0:
+                    raise ValueError(f"evidence gate must be a finite non-negative number, got {gate}")
+            self.evidence_gate_deviation = gate
             version = payload.get("model_version") or ""
             run_id = payload.get("mlflow_run_id") or ""
             self.model_version = (
@@ -250,27 +267,57 @@ class ForecasterService:
                 epoch, range_id, account_id, f"scoring error: {exc}", threshold
             )
 
+        # A score above threshold raises an alert only with traffic evidence behind
+        # it. The score itself is untouched; a gated window reads as `watch`, so
+        # "warn or above" still means exactly "an alert is raised". "Above" is
+        # against the range's threshold, the same one its bands are built from.
+        above = score >= threshold
+        deviation = self._deviation(windows)
+        gated = above and not has_traffic_evidence(deviation, self.evidence_gate_deviation)
+        band = "watch" if gated else bands.band(score)
         evidence = self.build_evidence(windows[best], score)
         return Forecast(
             window_start_epoch=epoch,
             range_id=range_id,
             account_id=account_id,
             risk_score=score,
-            risk_band=bands.band(score),
-            predicted_state=STATE_ABOUT_TO_START if score >= threshold else "QUIET",
+            risk_band=band,
+            predicted_state=STATE_ABOUT_TO_START if above and not gated else "QUIET",
             horizon_seconds=HORIZON_SECONDS,
             model_version=self.model_version,
             feature_version=self.feature_version,
             evidence=evidence,
-            # Only an alerting window has anything to calm; skip the extra
-            # model calls on the quiet majority. "Calm" means below the
-            # threshold this range is read against, not the model's.
+            # Only a window that actually raises an alert has anything to calm:
+            # a gated one (score above threshold, no traffic evidence) has no
+            # alert to explain away, and the quiet majority skips the extra
+            # model calls. "Calm" means below the range's threshold.
             counterfactual=(
                 self._counterfactual(windows[best], score, evidence, threshold)
-                if score >= threshold
+                if above and not gated
                 else None
             ),
+            gated=gated,
+            gate_reason=self._gate_reason(score, deviation, threshold) if gated else None,
             decision_threshold=threshold,
+        )
+
+    @staticmethod
+    def _deviation(windows: list[dict]) -> float | None:
+        """The strongest per-vector deviation at this instant, or `None` if unknown."""
+        values = []
+        for row in windows:
+            value = row.get(EVIDENCE_FEATURE)
+            if value is not None and math.isfinite(float(value)):
+                values.append(float(value))
+        return max(values) if values else None
+
+    def _gate_reason(self, score: float, deviation: float | None, threshold: float) -> str:
+        return (
+            f"The risk score ({score:.2f}) is above the {threshold:.2f} "
+            f"threshold, but traffic is within its normal range for this hour "
+            f"(strongest deviation {deviation:.1f}; an alert needs more than "
+            f"{self.evidence_gate_deviation:.1f}). The score is being driven by context "
+            "such as recent attack history, so no alert is raised. This is not an all-clear."
         )
 
     def _degraded(
