@@ -17,6 +17,8 @@ import math
 import pytest
 
 from conftest import ACCOUNT_ID, RANGE_ID
+from dfsi.agents.orchestrator import ExplainerOrchestrator
+from dfsi.agents.prompts import ADVISOR_SYSTEM
 from dfsi.agents.tools import EvidenceBundle, numeric_forms
 from dfsi.agents.validator import ValidationReport, check_evidence
 
@@ -117,3 +119,60 @@ def test_a_nan_in_the_evidence_does_not_break_the_bundle():
     citable = bundle.citable_numbers()  # must not raise
     assert "1200" in citable
     assert "nan" not in citable and "inf" not in citable
+
+
+# ------------------------------------------- reference names are not figures
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "A /24 diversion can also catch Teams and Zoom traffic (see PPNG-6760).",
+        "Full scrubbing covers the whole /24, per PPNG-6760.",
+        "Tracked as PPNG-6760 and CVE-2024-3094.",
+    ],
+)
+def test_ticket_ids_and_cidr_prefixes_are_not_figures(text):
+    report = verdict(text, bundle_with())
+    assert report.passed, report.failures
+
+
+def test_the_advisors_own_prompt_wording_passes_validation():
+    """The prompt tells the Advisor to cite exactly this; it must not be punished for it."""
+    sentence = (
+        "A diversion of a whole range can also catch unrelated services on it "
+        "(see PPNG-6760: a /24 block has caught Teams and Zoom traffic)."
+    )
+    assert "PPNG-6760" in ADVISOR_SYSTEM and "/24" in ADVISOR_SYSTEM  # still what we ask for
+    assert verdict(sentence, bundle_with()).passed
+
+
+def test_a_real_figure_beside_a_reference_is_still_rejected():
+    report = verdict("PPNG-6760 shows 742000 packets per second.", bundle_with())
+    assert not report.passed
+    assert "742000" in report.failures[0]
+    assert "6760" not in report.failures[0]  # the identifier is not what failed
+
+
+def test_a_slash_number_that_is_not_a_prefix_cannot_hide_a_figure():
+    report = verdict("Traffic reached 5/87 of capacity.", bundle_with())
+    assert not report.passed
+    assert "87" in report.failures[0]
+
+
+def test_an_invented_risk_figure_is_still_caught_next_to_a_reference():
+    report = verdict("Given PPNG-6760 the risk is 87% for this range.", bundle_with())
+    assert not report.passed
+    assert "risk figure" in report.failures[0]
+
+
+def test_the_offline_advisor_validates_when_no_drill_is_attached(monkeypatch):
+    """Without a drill it describes each option in prose, PPNG-6760 included.
+
+    That used to fail validation, so any `include_simulation=false` request
+    ended in MONITORING_ONLY.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    bundle = bundle_with(evidence=[{"feature": "country_hhi", "value": 0.68}])
+    result = ExplainerOrchestrator(api_key=None).run_advisor(bundle, reading="attack")
+    assert result.validated, result.validator_failures
