@@ -226,6 +226,21 @@ def permutation_importance(
     return importances
 
 
+def quiet_reference(features: pd.DataFrame, labels: np.ndarray) -> dict[str, float]:
+    """The typical value of each feature when nothing was about to happen.
+
+    Median over the windows labelled 0. This is the yardstick for per-alert
+    attribution (`ForecasterService.build_evidence`): a feature's contribution
+    to a score is how much that score falls if the feature is put back to its
+    quiet value. It is stored with the model so the same yardstick is used at
+    serving time that the model was trained against.
+    """
+    quiet = features[np.asarray(labels) == 0]
+    if quiet.empty:
+        raise ValueError("no quiet windows in the training split to anchor attribution on")
+    return {name: float(quiet[name].median()) for name in FEATURE_COLUMNS}
+
+
 def train(config: TrainConfig | None = None, environment: str | None = None) -> dict:
     config = config or TrainConfig()
     thresholds = thresholds_for(environment)
@@ -311,6 +326,7 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
         "feature_importance": dict(
             sorted(importances.items(), key=lambda kv: kv[1], reverse=True)
         ),
+        "feature_reference": quiet_reference(x_fit, y_fit),
         "per_scenario_type": _per_type_breakdown(test_frame, threshold, config),
     }
 
@@ -348,6 +364,7 @@ def _save_local_model(model, report: dict) -> None:
         "model_version": report.get("model_version"),
         "mlflow_run_id": report.get("mlflow_run_id"),
         "feature_importance": report["feature_importance"],
+        "feature_reference": report["feature_reference"],
     }
     with (PATHS.models / "forecaster.pkl").open("wb") as handle:
         pickle.dump(payload, handle)
