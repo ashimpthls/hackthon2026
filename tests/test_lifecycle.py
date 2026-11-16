@@ -293,3 +293,67 @@ def test_to_dict_is_plain_json():
 def test_an_invalid_policy_is_rejected(bad):
     with pytest.raises(ValueError):
         LifecyclePolicy(**bad)
+
+
+# ------------------------------------------------ the evidence gate (a breach with no traffic behind it)
+
+
+def run_with_evidence(scores, evidence, **policy):
+    lifecycle = AlertLifecycle(BANDS, LifecyclePolicy(**policy))
+    return [lifecycle.update(i * 10, s, e) for i, (s, e) in enumerate(zip(scores, evidence))]
+
+
+def test_a_breach_the_traffic_does_not_back_cannot_raise_an_alert():
+    out = run_with_evidence([CRIT] * 6, [False] * 6)
+    assert not any(s.is_open for s in out)
+    assert set(states(out)) == {"WATCH"}  # elevated, nothing to acknowledge
+
+
+def test_the_same_breach_with_evidence_raises():
+    assert run_with_evidence([CRIT] * 3, [True] * 3)[-1].is_open
+
+
+def test_a_breach_must_be_backed_on_every_window_of_the_run():
+    """A run needs `raise_after` consecutive *backed* windows, not just high ones."""
+    out = run_with_evidence([WARN, WARN, WARN, WARN], [True, False, True, False])
+    assert not any(s.is_open for s in out)
+
+
+def test_unbacked_windows_do_not_clear_an_open_alert():
+    """An open alert is held by its score, like any window; the gate only withholds."""
+    out = run_with_evidence([WARN, WARN] + [HELD] * 20, [True, True] + [False] * 20, clear_after=6)
+    assert all(s.state is AlertState.WARNING for s in out[1:])
+
+
+def test_an_unbacked_critical_window_cannot_escalate():
+    out = run_with_evidence([WARN, WARN, CRIT, CRIT, CRIT], [True, True, False, False, False])
+    assert "CRITICAL" not in states(out)
+    out = run_with_evidence([WARN, WARN, CRIT, CRIT], [True, True, True, True])
+    assert states(out)[-1] == "CRITICAL"
+
+
+def test_an_unbacked_relapse_does_not_reopen_an_alert():
+    series = [WARN, WARN] + [LOW] * 6 + [WARN, WARN, WARN]
+    out = run_with_evidence(series, [True] * 8 + [False] * 3, clear_after=6, cooldown_windows=12)
+    assert "reopened" not in [e for _, e in events(out)]
+    assert out[-1].state is AlertState.COOLING
+
+
+def test_evidence_defaults_to_present():
+    """Callers that predate the gate behave exactly as before."""
+    plain = AlertLifecycle(BANDS, LifecyclePolicy())
+    assert [plain.update(i * 10, s).state for i, s in enumerate([WARN, WARN, WARN])] == states(run([WARN] * 3))
+
+
+def test_the_first_alert_still_matches_the_debounce_once_evidence_is_required():
+    rng = random.Random(7)
+    for _ in range(300):
+        needed = rng.randint(1, 4)
+        n = rng.randint(0, 40)
+        scores = [None if rng.random() < 0.1 else round(rng.random(), 2) for _ in range(n)]
+        backed = [rng.random() < 0.7 for _ in range(n)]
+        lifecycle = AlertLifecycle(BANDS, LifecyclePolicy(raise_after=needed))
+        out = [lifecycle.update(i * 10, s, b) for i, (s, b) in enumerate(zip(scores, backed))]
+        first = next((i for i, s in enumerate(out) if s.event == "raised"), None)
+        flags = [s is not None and s >= BANDS.warn and b for s, b in zip(scores, backed)]
+        assert first == first_alert_index(flags, needed), (needed, scores, backed)

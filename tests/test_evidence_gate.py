@@ -315,3 +315,28 @@ def test_a_stretch_that_becomes_abnormal_warns_when_it_does(tmp_path):
     """Gating delays an alert until the traffic corroborates it; it does not drop it."""
     state, _ = stream_state(service(tmp_path, score=0.95), [0.5, 0.8, 1.0, 5.0, 6.0, 7.0])
     assert state.first_warning_epoch == EPOCH + 40
+
+
+# ------------------------------------------------- the gate and the alert lifecycle agree
+
+
+def test_a_context_driven_stretch_opens_no_lifecycle_alert(tmp_path):
+    """The dashboard says QUIET; the lifecycle must not contradict it with an open alert."""
+    state, events = stream_state(service(tmp_path, score=0.95), [0.5, 1.0, 1.2, 0.8, 1.1, 0.9])
+    assert all(not e["alert"]["is_open"] for e in events)
+    assert state.lifecycle.summary() == []
+    assert {e["alert"]["state"] for e in events} == {"WATCH"}
+
+
+def test_the_lifecycle_raises_on_the_same_window_the_dashboard_warns(tmp_path):
+    state, events = stream_state(service(tmp_path, score=0.95), [0.5, 0.8, 1.0, 5.0, 6.0, 7.0])
+    raised = next(e["window_start_epoch"] for e in events if e["alert"]["event"] == "raised")
+    # Backed windows start at index 3; the run of two completes at index 4.
+    assert raised == state.first_warning_epoch == EPOCH + 40
+
+
+def test_an_open_alert_is_not_closed_by_a_stretch_without_traffic_evidence(tmp_path):
+    deviations = [6.0, 7.0, 8.0] + [0.5] * 12  # a real attack, then deviation drops below the bar
+    state, events = stream_state(service(tmp_path, score=0.95), deviations)
+    assert all(e["alert"]["is_open"] for e in events[1:])
+    assert len(state.lifecycle.summary()) == 1

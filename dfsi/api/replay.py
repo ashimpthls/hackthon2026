@@ -142,7 +142,9 @@ def step(state: ReplayState, forecaster: ForecasterService) -> dict:
         state.lifecycle = AlertLifecycle(
             forecaster.bands, LifecyclePolicy(raise_after=forecaster.min_consecutive)
         )
-    alert = state.lifecycle.update(epoch, forecast.risk_score)
+    # A window the evidence gate withheld has a high score but no traffic behind
+    # it: it must not raise the alert that the per-window state has just declined.
+    alert = state.lifecycle.update(epoch, forecast.risk_score, evidence=not forecast.gated)
 
     # Track when DFSI first warned and when the bell would actually ring, so
     # the UI can draw the lead-time gap that is the whole point of the project.
