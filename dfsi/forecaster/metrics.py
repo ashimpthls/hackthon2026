@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import HORIZON_SECONDS, WINDOW_SECONDS
+from .alerting import first_alert_index
 
 #: Sanity bound for reporting: a lead time longer than the horizon plus one
 #: window cannot come from the model's own forecast horizon. Such warnings are
@@ -123,9 +124,11 @@ def scenario_outcomes(
 ) -> list[ScenarioOutcome]:
     """Reduce scored windows to one outcome per scenario.
 
-    A warning requires `min_consecutive` consecutive windows above threshold.
-    Single-window spikes are exactly the noise an operator would learn to
-    ignore, so they must not count as warnings.
+    A warning requires `min_consecutive` consecutive windows above threshold
+    (see `alerting`): single-window spikes are exactly the noise an operator
+    would learn to ignore, so they must not count as warnings. The warning is
+    credited at the window that *completes* the run, the first moment anyone
+    could have been told, not back to the run's first window.
     """
     has_over_column = "range_over_threshold" in frame.columns
     outcomes: list[ScenarioOutcome] = []
@@ -144,14 +147,8 @@ def scenario_outcomes(
         above = (per_window["score"] >= threshold).to_numpy()
         epochs = per_window.index.to_numpy()
 
-        first_warning: int | None = None
-        run = 0
-        for i, flag in enumerate(above):
-            run = run + 1 if flag else 0
-            if run >= min_consecutive:
-                # Credit the warning to the first window of the run.
-                first_warning = int(epochs[i - min_consecutive + 1])
-                break
+        alert_index = first_alert_index(above, min_consecutive)
+        first_warning = int(epochs[alert_index]) if alert_index is not None else None
 
         onset_rows = np.flatnonzero(per_window["is_onset"].to_numpy() > 0)
         onset_epoch = int(epochs[onset_rows[0]]) if onset_rows.size else None

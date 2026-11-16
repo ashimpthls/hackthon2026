@@ -119,14 +119,16 @@ def test_single_window_spike_is_not_a_warning():
     assert evaluate(frame, "risk_score", 0.5).false_alarm_rate == 0.0
 
 
-def test_two_consecutive_windows_is_a_warning_credited_to_the_first():
+def test_two_consecutive_windows_is_a_warning_raised_at_the_second():
     frame = scored_frame(
         scenario("real", "gradual_buildup", [0.1, 0.9, 0.9, 0.1, 0.1, 0.1], onset_index=5)
     )
     outcomes = scenario_outcomes(frame, "risk_score", 0.5, min_consecutive=2)
-    # Index 1 is the first window of the run, so the lead starts there.
-    assert outcomes[0].first_warning_epoch == EPOCH + 10
-    assert outcomes[0].lead_seconds == 40.0
+    # The run starts at index 1 but is only known to be a run at index 2, the
+    # first moment an operator could be told. Crediting index 1 would overstate
+    # the head start by a window nobody could have acted in.
+    assert outcomes[0].first_warning_epoch == EPOCH + 20
+    assert outcomes[0].lead_seconds == 30.0
 
 
 def test_traffic_types_collapse_to_the_range_level():
@@ -146,7 +148,7 @@ def test_traffic_types_collapse_to_the_range_level():
                 }
             )
     outcomes = scenario_outcomes(scored_frame(rows), "risk_score", 0.5, min_consecutive=2)
-    assert outcomes[0].first_warning_epoch == EPOCH
+    assert outcomes[0].first_warning_epoch == EPOCH + 10  # the run completes at window 2
 
 
 # ------------------------------------------------------------ aggregation
@@ -244,8 +246,9 @@ def test_attack_already_under_way_is_excluded_from_lead_time():
     assert result.n_attack_scenarios == 2
     assert result.n_forecastable_scenarios == 1
     assert result.n_in_progress_scenarios == 1
-    # 60s, from the buildup alone — not the 20s average of both.
-    assert result.median_lead_seconds == 60.0
+    # 50s, from the buildup alone — not the 20s average of both. (The warning
+    # is raised at window 7, the second of the run, and the bell rings at 12.)
+    assert result.median_lead_seconds == 50.0
     assert result.attacks_caught == 1.0
 
 
@@ -279,7 +282,7 @@ def test_leads_beyond_the_horizon_are_counted_separately():
         scenario("long", "gradual_buildup", [0.9] * 2 + [0.1] * 38, onset_index=39)
     )
     result = evaluate(frame, "risk_score", 0.5)
-    assert result.median_lead_seconds == 390.0
+    assert result.median_lead_seconds == 380.0  # raised at window 1, bell at window 39
     assert result.leads_beyond_horizon == 1
 
 

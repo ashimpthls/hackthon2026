@@ -37,6 +37,7 @@ from ..config import (
     STATE_ABOUT_TO_START,
     thresholds_for,
 )
+from ..forecaster.alerting import AlertTracker
 from ..forecaster.serve import ForecasterService
 from ..rehearsal.simulator import CANDIDATES_BY_KEY, run_drill
 from . import replay as replay_engine
@@ -389,8 +390,11 @@ def _replay_and_decision_epoch(
     buckets: dict[int, list[dict]] = {}
     for row in replay["windows"]:
         buckets.setdefault(int(row["window_start_epoch"]), []).append(row)
+    # The same debounce the stream applies, so "the first window DFSI warned
+    # about" is the window the dashboard actually raised the warning at.
+    tracker = AlertTracker(_forecaster.min_consecutive)
     for epoch in epochs:
         forecast = _forecaster.score_window(buckets[epoch])
-        if forecast.predicted_state == STATE_ABOUT_TO_START:
+        if tracker.update(forecast.predicted_state == STATE_ABOUT_TO_START):
             return replay, epoch
     return replay, epochs[-1]
