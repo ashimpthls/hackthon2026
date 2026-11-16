@@ -31,6 +31,14 @@ class DrillRequest(BaseModel):
         ),
     )
     environment: Literal["stage", "prod"] | None = None
+    #: Replay every option under plausible versions of its stated assumptions
+    #: and report ranges and win shares. Costs a fraction of a second, so it is
+    #: opt-in rather than slowing every drill.
+    include_uncertainty: bool = False
+    uncertainty_draws: int = Field(default=200, ge=1, le=2_000)
+    #: Price holding off: what deciding later would cost and save per option.
+    include_waiting: bool = False
+    waiting_seconds: list[int] = Field(default_factory=lambda: [30, 60, 90], max_length=6)
 
 
 class ExplainRequest(BaseModel):

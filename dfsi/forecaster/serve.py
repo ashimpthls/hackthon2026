@@ -30,6 +30,7 @@ from ..config import (
     STATE_MONITORING_ONLY,
 )
 from ..memory.features import FEATURE_COLUMNS
+from .counterfactual import find_counterfactual
 from .gate import EVIDENCE_FEATURE, has_traffic_evidence
 
 log = logging.getLogger("dfsi.forecaster.serve")
@@ -106,6 +107,9 @@ class Forecast:
     model_version: str
     feature_version: str
     evidence: list[dict] = field(default_factory=list)
+    #: For a window at or above threshold: how far the top drivers would have to
+    #: come back for the alert to stop (see `counterfactual`). `None` otherwise.
+    counterfactual: dict | None = None
     degraded: bool = False
     degraded_reason: str | None = None
     #: The risk score is above the decision threshold but there is no traffic
@@ -126,6 +130,7 @@ class Forecast:
             "model_version": self.model_version,
             "feature_version": self.feature_version,
             "evidence": self.evidence,
+            "counterfactual": self.counterfactual,
             "degraded": self.degraded,
             "degraded_reason": self.degraded_reason,
             "gated": self.gated,
@@ -251,6 +256,7 @@ class ForecasterService:
         deviation = self._deviation(windows)
         gated = above and not has_traffic_evidence(deviation, self.evidence_gate_deviation)
         band = "watch" if gated else self.bands.band(score)
+        evidence = self.build_evidence(windows[best], score)
         return Forecast(
             window_start_epoch=epoch,
             range_id=range_id,
@@ -261,7 +267,16 @@ class ForecasterService:
             horizon_seconds=HORIZON_SECONDS,
             model_version=self.model_version,
             feature_version=self.feature_version,
-            evidence=self.build_evidence(windows[best], score),
+            evidence=evidence,
+            # Only a window that actually raises an alert has anything to calm:
+            # a gated one (score above threshold, no traffic evidence) has no
+            # alert to explain away, and the quiet majority skips the extra
+            # model calls.
+            counterfactual=(
+                self._counterfactual(windows[best], score, evidence)
+                if above and not gated
+                else None
+            ),
             gated=gated,
             gate_reason=self._gate_reason(score, deviation) if gated else None,
         )
@@ -301,6 +316,42 @@ class ForecasterService:
             degraded=True,
             degraded_reason=reason,
         )
+
+    def _counterfactual(self, row: dict, score: float, evidence: list[dict]) -> dict | None:
+        """How far the drivers of this alert would have to come back for it to stop.
+
+        The drivers are the evidence items pushing the score up, strongest first.
+        Needs the quiet reference, so models saved without one return `None`.
+        Explanation is not safety: any failure is logged and the forecast is
+        returned without it.
+        """
+        if not self._reference:
+            return None
+        drivers = [
+            item["feature"]
+            for item in sorted(
+                (i for i in evidence if i.get("contribution", 0.0) > 0.0),
+                key=lambda i: i["contribution"],
+                reverse=True,
+            )
+        ]
+        try:
+            values = [np.nan if row[col] is None else float(row[col]) for col in self._features]
+            return find_counterfactual(
+                lambda batch: self._model.predict_proba(
+                    pd.DataFrame(batch, columns=self._features)
+                )[:, 1],
+                self._features,
+                values,
+                self._reference,
+                drivers,
+                EVIDENCE_LABELS,
+                self.decision_threshold,
+                score,
+            )
+        except Exception:
+            log.warning("could not build a counterfactual", exc_info=True)
+            return None
 
     # ------------------------------------------------------------------ #
     def build_evidence(self, row: dict, score: float, top_n: int = 6) -> list[dict]:

@@ -23,7 +23,7 @@ from dfsi.api import replay as replay_engine
 from dfsi.config import STATE_ABOUT_TO_START, STATE_MONITORING_ONLY
 from dfsi.forecaster.alerting import AlertTracker, first_alert_index
 from dfsi.forecaster.metrics import scenario_outcomes
-from dfsi.forecaster.serve import Forecast
+from dfsi.forecaster.serve import Forecast, RiskBands
 
 THRESHOLD = 0.5
 
@@ -86,6 +86,7 @@ class ScriptedForecaster:
     def __init__(self, scores, min_consecutive: int = 2, threshold: float = THRESHOLD):
         self.min_consecutive = min_consecutive
         self._threshold = threshold
+        self.bands = RiskBands.for_threshold(threshold)
         self._by_epoch = {EPOCH + i * 10: score for i, score in enumerate(scores)}
 
     def score_window(self, rows: list[dict]) -> Forecast:

@@ -41,6 +41,8 @@ from ..forecaster.alerting import AlertTracker
 from ..forecaster.serve import ForecasterService
 from ..rehearsal.policy_advisor import PolicyPlan, suggest_policy
 from ..rehearsal.simulator import CANDIDATES_BY_KEY, run_drill
+from ..rehearsal.uncertainty import assumption_uncertainty
+from ..rehearsal.waiting import cost_of_waiting
 from . import replay as replay_engine
 from .schemas import (
     DecisionRecord,
@@ -245,6 +247,9 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
                     else None
                 ),
                 "windows_streamed": state.cursor,
+                # One entry per incident, not per flicker: when each alert
+                # opened and closed, how high it peaked, whether it escalated.
+                "alerts": replay_engine.alert_summary(state),
             }
         )
 
@@ -271,6 +276,25 @@ def drill(request: DrillRequest) -> dict:
     result = run_drill(replay["windows"], decision_epoch, request.environment, plan)
     result["replay_id"] = request.replay_id
     result["scenario_type"] = replay["scenario_type"]
+    if request.include_uncertainty:
+        result["uncertainty"] = assumption_uncertainty(
+            replay["windows"],
+            decision_epoch,
+            request.environment,
+            plan,
+            draws=request.uncertainty_draws,
+        )
+    if request.include_waiting:
+        try:
+            result["cost_of_waiting"] = cost_of_waiting(
+                replay["windows"],
+                decision_epoch,
+                request.waiting_seconds,
+                request.environment,
+                plan,
+            )
+        except ValueError as exc:  # a wait that is not whole windows is the caller's mistake
+            raise HTTPException(status_code=422, detail=str(exc))
     return result
 
 
