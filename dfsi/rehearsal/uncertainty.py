@@ -51,6 +51,9 @@ METRICS: tuple[str, ...] = (
 
 NONE_CONTAIN = "none_contain"
 
+#: `basis` of an option whose assumptions are drawn from the spread.
+SAMPLED_BASIS = "stated assumptions, sampled"
+
 
 @dataclass(frozen=True)
 class AssumptionSpread:
@@ -181,7 +184,7 @@ def assumption_uncertainty(
         entry["basis"] = (
             "past-week thresholds (not sampled)"
             if uses_plan(candidate, policy_plan)
-            else "stated assumptions, sampled"
+            else SAMPLED_BASIS
         )
         options[candidate.key] = entry
 
@@ -190,7 +193,7 @@ def assumption_uncertainty(
     if hold.seconds_over_threshold == 0:
         # Nothing to contain, so "which option contains it cheapest" has no answer;
         # reporting "no option contains it" at 100% would read as failure.
-        p_best = leader = leader_share = robust = None
+        p_best = leader = leader_share = robust = leader_sampled = None
         notes.append(
             "Even with no intervention this never crosses the start threshold, "
             "so there is nothing to contain: the bands show collateral only."
@@ -201,6 +204,19 @@ def assumption_uncertainty(
         leader = max(p_best, key=lambda key: p_best[key])
         leader_share = p_best[leader]
         robust = leader_share >= ROBUST_SHARE
+        # Robustness is measured over the *sampled* assumptions. If the leader is
+        # the option driven by past-week thresholds, it has none of its own to
+        # vary, so "robust" only says no sampled option beats it: a weaker claim
+        # than it sounds, and the reader should be told which one they are getting.
+        leader_sampled = (
+            options[leader]["basis"] == SAMPLED_BASIS if leader in options else None
+        )
+        if robust and leader_sampled is False:
+            notes.append(
+                "The leading option rests on past-week thresholds, which are not sampled. "
+                "Robust here means no sampled option beats it under the spread; it does "
+                "not test the leader's own assumptions."
+            )
 
     return {
         "simulation_only": True,
@@ -213,6 +229,9 @@ def assumption_uncertainty(
         "leader": leader,
         "leader_share": leader_share,
         "recommendation_is_robust": robust,
+        #: Whether the leader's own assumptions were varied. `False` means the
+        #: robustness claim covers its rivals only; `None` when there is no leader.
+        "leader_assumptions_sampled": leader_sampled,
         "notes": notes,
         "caveat": (
             "The spread is a judgement, not a measurement. These bands show how far "

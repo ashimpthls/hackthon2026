@@ -11,7 +11,7 @@ import dataclasses
 
 import pytest
 
-from conftest import EPOCH, attack_windows, quiet_windows
+from conftest import EPOCH, attack_windows, make_row, quiet_windows
 from dfsi.rehearsal.simulator import CANDIDATES_BY_KEY, simulate
 from dfsi.rehearsal.waiting import (
     DEFAULT_WAITS,
@@ -147,3 +147,65 @@ def test_when_nothing_crosses_the_threshold_waiting_is_free():
 def test_a_decision_with_no_windows_after_it_is_rejected():
     with pytest.raises(ValueError):
         cost_of_waiting(FLOOD, EPOCH + 10_000)
+
+
+# ------------------------------------------- containment is not always comparable
+
+
+def relapsing_incident() -> list[dict]:
+    """A brief spike an early policy would absorb, then a flood it cannot fully absorb.
+
+    Engaged early, rate-limiting prevents the spike from ever crossing, so its
+    containment clock only starts at the flood. Engaged after the spike, the
+    spike counts as the crossing, the policy is clear right after engaging, and
+    "contained" is reported a few seconds in, though the flood is still to come.
+    This is the shape that made a real replay report containment 610s sooner.
+    """
+
+    def row(i: int, pps: float) -> dict:
+        return make_row(
+            epoch=EPOCH + i * 10,
+            traffic_type="udp",
+            total_pps=pps,
+            blocked_pps=max(0.0, pps - 40_000.0),
+            baseline_deviation_pps=18.0 if pps > 40_000 else 0.2,
+        )
+
+    pps = [10_000.0] * 9 + [60_000.0] * 2 + [10_000.0] * 29 + [300_000.0] * 21 + [10_000.0] * 25
+    return [row(i, p) for i, p in enumerate(pps)]
+
+
+def test_a_containment_that_comes_out_sooner_after_waiting_is_not_reported_as_a_number():
+    report = cost_of_waiting(relapsing_incident(), EPOCH, waits=[30, 60, 90])
+    rate_limit = report["options"]["rate_limit_sources"]
+    now = rate_limit["decide_now"]["time_to_contain_seconds"]
+    late = next(r for r in rate_limit["waiting"] if r["wait_seconds"] == 90)
+
+    assert late["time_to_contain_seconds"] < now  # the artefact: waiting "contains it sooner"
+    assert late["containment_comparable"] is False
+    assert late["extra_seconds_to_contain"] is None  # no nonsense delta
+    # The dependable cost is still there, and it points the right way.
+    assert late["extra_seconds_over_threshold"] > 0
+    assert any("not comparable" in note for note in report["notes"])
+
+
+def test_waits_whose_containment_is_comparable_are_still_reported_in_full():
+    report = cost_of_waiting(relapsing_incident(), EPOCH, waits=[30, 60, 90])
+    for r in report["options"]["rate_limit_sources"]["waiting"]:
+        if r["wait_seconds"] in (30, 60):
+            assert r["containment_comparable"] is True and r["extra_seconds_to_contain"] == 0
+    scrub = report["options"]["full_scrub"]["waiting"]
+    assert all(r["containment_comparable"] for r in scrub)
+    assert [r["extra_seconds_to_contain"] for r in scrub] == [30, 60, 90]
+
+
+def test_waiting_is_never_reported_as_containing_sooner():
+    for windows, decision in ((relapsing_incident(), EPOCH), (FLOOD, DECISION)):
+        report = cost_of_waiting(windows, decision, waits=[10, 30, 60, 90, 120])
+        for option in report["options"].values():
+            for r in option["waiting"]:
+                assert r["extra_seconds_to_contain"] is None or r["extra_seconds_to_contain"] >= 0
+
+
+def test_a_normal_incident_has_no_containment_note():
+    assert not any("not comparable" in note for note in result()["notes"])

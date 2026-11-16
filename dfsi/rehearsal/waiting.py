@@ -18,6 +18,18 @@ Both sides are reported, because both are real:
 * **saving** — legitimate traffic not dropped, because the policy is in force
   for less of the incident.
 
+**"Time to contain" is the shakiest of those numbers, and the report says so.**
+The simulator defines it as the first 30-second clear stretch after the incident
+*first crosses* the threshold under that policy. Engage a policy before the
+incident's first crossing and that crossing may never happen under it, so the
+clock starts at a later relapse; engage it after, and the early crossing counts
+and the clock starts at once. The result is not monotonic in engagement time: on
+real replays a rate-limit delayed by 90s reported containment 610s *sooner*,
+while still relapsing twenty times. Waiting cannot make containment earlier, so a
+negative difference is reported as "not comparable" (`containment_comparable:
+false`, no delta) instead of as a number. Seconds over the threshold is the
+dependable cost and is always reported.
+
 Nothing here decides anything or touches production; it is arithmetic on the
 same recorded traffic and the same stated assumptions as the rest of the drill.
 """
@@ -79,11 +91,16 @@ def _row(
     decision_epoch: int,
 ) -> dict:
     """One option, one wait: the outcome and how it differs from deciding now."""
-    extra_to_contain = (
-        later.time_to_contain_seconds - now.time_to_contain_seconds
-        if now.time_to_contain_seconds is not None and later.time_to_contain_seconds is not None
-        else None
-    )
+    extra_to_contain: int | None = None
+    containment_comparable = True
+    if now.time_to_contain_seconds is not None and later.time_to_contain_seconds is not None:
+        difference = later.time_to_contain_seconds - now.time_to_contain_seconds
+        if difference < 0:
+            # Waiting cannot make containment earlier: the two clocks started at
+            # different crossings, so the difference means nothing (see module doc).
+            containment_comparable = False
+        else:
+            extra_to_contain = difference
     attack_lost = round(now.attack_packets_blocked_pct - later.attack_packets_blocked_pct, 2)
     collateral_saved = round(now.legitimate_packets_lost_pct - later.legitimate_packets_lost_pct, 2)
     extra_over = later.seconds_over_threshold - now.seconds_over_threshold
@@ -99,6 +116,7 @@ def _row(
         # Cost of waiting.
         "extra_seconds_over_threshold": extra_over,
         "extra_seconds_to_contain": extra_to_contain,
+        "containment_comparable": containment_comparable,
         "no_longer_contains": no_longer_contains,
         "attack_blocked_pct_points_lost": attack_lost,
         # What waiting saves.
@@ -162,6 +180,13 @@ def cost_of_waiting(
         notes.append(
             "Even with no intervention this never crosses the start threshold, "
             "so there is nothing to contain: waiting costs nothing here."
+        )
+    if any(not row["containment_comparable"] for o in options.values() for row in o["waiting"]):
+        notes.append(
+            "For some waits the time to contain is not comparable with deciding now: "
+            "the incident crosses the threshold before the delayed policy engages, so "
+            "the two containment clocks start at different crossings. Judge those "
+            "rows by seconds over the threshold, which is always comparable."
         )
     return {
         "simulation_only": True,

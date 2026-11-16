@@ -246,3 +246,27 @@ def test_a_negative_spread_is_rejected(bad):
 
 def test_the_caveat_says_these_are_not_confidence_intervals():
     assert "not confidence intervals" in run(draws=5)["caveat"]
+
+
+# ------------------------- what "robust" does and does not cover (the leader's own assumptions)
+
+
+def test_a_robust_leader_driven_by_the_past_week_says_its_own_assumptions_were_not_varied():
+    """With a plan, "tighten" rests on measured thresholds and has nothing to sample, so
+    "robust" only means no sampled option beats it. The report must say so."""
+    report = assumption_uncertainty(FLOOD, DECISION, policy_plan=make_plan(), draws=60)
+    assert report["leader"] == "tighten_vector" and report["recommendation_is_robust"] is True
+    assert report["leader_assumptions_sampled"] is False
+    assert any("not sampled" in note and "does not test" in note for note in report["notes"])
+
+
+def test_a_sampled_leader_carries_no_such_caveat():
+    moderate = attack_windows(count=40, onset_index=6, peak_pps=60_000.0)
+    report = assumption_uncertainty(moderate, DECISION, draws=100)
+    assert report["leader_assumptions_sampled"] is True
+    assert not any("not sampled" in note for note in report["notes"])
+
+
+def test_there_is_nothing_to_say_about_sampling_when_there_is_no_leader():
+    report = assumption_uncertainty(quiet_windows(count=30), EPOCH + 50, draws=20)
+    assert report["leader"] is None and report["leader_assumptions_sampled"] is None
