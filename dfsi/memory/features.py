@@ -129,6 +129,9 @@ def build_spark(app_name: str = "dfsi-memory", shuffle_partitions: int = 8) -> S
     return (
         SparkSession.builder.appName(app_name)
         .master("local[*]")
+        # In local mode the driver is the only executor. Spark's 1g default
+        # runs out of heap on the four-week logbook (~2.9M windows).
+        .config("spark.driver.memory", os.getenv("DFSI_SPARK_DRIVER_MEMORY", "4g"))
         .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
         .config("spark.ui.showConsoleProgress", "false")
         .config("spark.sql.session.timeZone", "UTC")
