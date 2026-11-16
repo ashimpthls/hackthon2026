@@ -86,8 +86,13 @@ if [ "$START_UI" = 1 ] || [ "$SERVE" = 0 ]; then
 fi
 
 # --------------------------------------------------------------- 3. Memory layer
-if [ "$REBUILD" = 1 ] || [ ! -d "$DFSI_HOME/data/features" ]; then
-  echo "==> Memory layer: PySpark over the logbook (~2-4 min)"
+# A complete build ends with the feature table's _SUCCESS marker and the replay
+# catalogue. Checking only for data/features misses a half-written table, and
+# the catalogue that older checkouts tracked in git (a pull deletes it).
+if [ "$REBUILD" = 1 ] \
+  || [ ! -f "$DFSI_HOME/data/features/_SUCCESS" ] \
+  || [ ! -f "$DFSI_HOME/data/replay/catalogue.json" ]; then
+  echo "==> Memory layer: PySpark over the logbook (~1-2 min)"
   # shellcheck disable=SC2086  # MEMORY_ARGS is a deliberate word list
   scripts/build_memory.sh $MEMORY_ARGS
 else
@@ -118,7 +123,9 @@ PORT="${DFSI_PORT:-8000}"
 UI_PORT="${DFSI_UI_PORT:-5173}"
 
 for p in "$PORT" $([ "$START_UI" = 1 ] && echo "$UI_PORT"); do
-  if lsof -ti "tcp:$p" >/dev/null 2>&1; then
+  # -sTCP:LISTEN: only a listener blocks the bind. Without it, a client socket
+  # left on the port (e.g. VS Code's port forwarder, often CLOSED) counts too.
+  if lsof -ti "tcp:$p" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "DFSI: port $p is already in use. Stop that process, or set DFSI_PORT / DFSI_UI_PORT." >&2
     exit 1
   fi
