@@ -1,0 +1,138 @@
+{
+  "accounts": [
+    {
+      "account_id": 421001,
+      "ranges": [
+        {
+          "range_id": 90110001,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "traffic_types": {
+            "udp": {
+              "base_pps": 14000.0,
+              "base_mbps": 123.2,
+              "max_threshold_pps": 70000.0,
+              "max_threshold_mbps": 616.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 22000.0,
+              "base_mbps": 11.264,
+              "max_threshold_pps": 110000.0,
+              "max_threshold_mbps": 56.32,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 48000.0,
+              "base_mbps": 268.8,
+              "max_threshold_pps": 240000.0,
+              "max_threshold_mbps": 1344.0,
+              "mean_packet_bytes": 700
+            }
+          }
+        },
+        {
+          "range_id": 90110002,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "traffic_types": {
+            "udp": {
+              "base_pps": 9000.0,
+              "base_mbps": 79.2,
+              "max_threshold_pps": 45000.0,
+              "max_threshold_mbps": 396.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 11000.0,
+              "base_mbps": 5.632,
+              "max_threshold_pps": 55000.0,
+              "max_threshold_mbps": 28.16,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 26000.0,
+              "base_mbps": 145.6,
+              "max_threshold_pps": 130000.0,
+              "max_threshold_mbps": 728.0,
+              "mean_packet_bytes": 700
+            }
+          }
+        }
+      ]
+    },
+    {
+      "account_id": 558777,
+      "ranges": [
+        {
+          "range_id": 90110003,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "traffic_types": {
+            "udp": {
+              "base_pps": 31000.0,
+              "base_mbps": 272.8,
+              "max_threshold_pps": 155000.0,
+              "max_threshold_mbps": 1364.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 18000.0,
+              "base_mbps": 9.216,
+              "max_threshold_pps": 90000.0,
+              "max_threshold_mbps": 46.08,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 64000.0,
+              "base_mbps": 358.4,
+              "max_threshold_pps": 320000.0,
+              "max_threshold_mbps": 1792.0,
+              "mean_packet_bytes": 700
+            }
+          }
+        }
+      ]
+    },
+    {
+      "account_id": 612430,
+      "ranges": [
+        {
+          "range_id": 90110004,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "traffic_types": {
+            "udp": {
+              "base_pps": 6500.0,
+              "base_mbps": 57.2,
+              "max_threshold_pps": 32500.0,
+              "max_threshold_mbps": 286.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 7200.0,
+              "base_mbps": 3.6864,
+              "max_threshold_pps": 36000.0,
+              "max_threshold_mbps": 18.432,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 15000.0,
+              "base_mbps": 84.0,
+              "max_threshold_pps": 75000.0,
+              "max_threshold_mbps": 420.0,
+              "mean_packet_bytes": 700
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "policy_headroom_multiplier": 5.0,
+    "window_seconds": 10,
+    "traffic_types": ["udp", "tcp_syn", "http"],
+    "mean_packet_bytes": {
+      "udp": 1100,
+      "tcp_syn": 64,
+      "http": 700
+    },
+    "note": "max_threshold_pps = base_pps * 5.0 (policy_headroom). mbps = pps * mean_packet_bytes * 8 / 1_000_000"
+  }
+}
