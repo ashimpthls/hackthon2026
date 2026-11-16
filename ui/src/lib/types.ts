@@ -74,7 +74,12 @@ export interface StartEvent {
   model_version: string
   feature_version: string
   forecaster_ready: boolean
+  policy_version: number
+  policy: RangePolicy | null
 }
+
+/** Policy lines per traffic type, as held in the simulated policy store. */
+export type RangePolicy = Record<string, { max_threshold_pps: number; max_threshold_mbps: number }>
 
 export interface SummaryEvent {
   type: 'summary'
@@ -85,6 +90,36 @@ export interface SummaryEvent {
   bell_epoch: number | null
   lead_seconds: number | null
   windows_streamed: number
+  policy_version: number
+  policy: RangePolicy | null
+  /** Whole-episode figures, so runs under different policies compare. */
+  blocked_share_total?: number
+  peak_passed_pps?: number
+  seconds_declared?: number
+  bell_after_seconds?: number | null
+  warning_after_seconds?: number | null
+}
+
+export interface PolicyChangeEntry {
+  version: number
+  at_epoch: number
+  action: 'change' | 'reset'
+  range_id?: number
+  replay_id?: string
+  operator?: string
+  changes?: { traffic_type: string; from_pps: number; to_pps: number }[]
+}
+
+export interface PolicySnapshot {
+  source: string | null
+  version: number
+  ranges: {
+    range_id: number
+    account_id: number | null
+    range_type: string | null
+    traffic_types: RangePolicy
+  }[]
+  history: PolicyChangeEntry[]
 }
 
 export interface ErrorEvent {
@@ -247,7 +282,10 @@ export interface DecisionRecord {
       backtest_legit_lost_pct: number
     }[]
   } | null
-  applied: false
+  /** True when an approved threshold change was written to the simulated store. */
+  applied: boolean
+  policy_version_before: number | null
+  policy_version_after: number | null
   note_to_auditor: string
 }
 

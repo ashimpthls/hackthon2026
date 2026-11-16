@@ -40,6 +40,7 @@ from ..config import (
 from ..forecaster.alerting import AlertTracker
 from ..forecaster.serve import ForecasterService
 from ..rehearsal.policy_advisor import PolicyPlan, suggest_policy
+from ..rehearsal.policy_store import PolicyStore, apply_policy
 from ..rehearsal.simulator import CANDIDATES_BY_KEY, run_drill
 from . import replay as replay_engine
 from .schemas import (
@@ -73,6 +74,9 @@ KNOWN_LIMITATIONS = [
     "assumptions, not measurements of Behemoth's actual behaviour.",
     "Source information is country-mix concentration only; an attack that is "
     "evenly distributed across many countries loses that signal.",
+    "Approved threshold changes apply to DFSI's simulated, in-memory policy "
+    "store (seeded from raw.json), not to Behemoth or any customer "
+    "configuration. Restarting the API, or resetting the store, restores the seed.",
 ]
 
 app = FastAPI(
@@ -102,6 +106,43 @@ app.add_middleware(
 
 _forecaster = ForecasterService()
 _orchestrator = ExplainerOrchestrator()
+_policy_store = PolicyStore.from_file(PATHS.policy_db)
+
+
+def _load_replay(replay_id: str) -> dict:
+    """A stored replay, re-derived under the policy currently in the store.
+
+    Every endpoint goes through this, so the stream, the drill, the agents and
+    the decision all see the same policy. Raises KeyError for unknown ids.
+    """
+    replay = replay_engine.load_replay(replay_id)
+    range_id = int(replay["range_id"])
+    policy = _policy_store.range_policy(range_id)
+    replay = dict(replay)
+    replay["windows"] = apply_policy(replay["windows"], policy)
+    replay["policy_version"] = _policy_store.range_version(range_id)
+    replay["policy"] = (
+        {t: {"max_threshold_pps": p.pps, "max_threshold_mbps": round(p.mbps, 3)} for t, p in sorted(policy.items())}
+        if policy
+        else None
+    )
+    return replay
+
+
+# --------------------------------------------------------------------------- #
+# Policy store (simulated)
+# --------------------------------------------------------------------------- #
+@app.get("/api/policies")
+def list_policies() -> dict:
+    """The simulated policy store: current lines per range and type, and history."""
+    return _policy_store.snapshot()
+
+
+@app.post("/api/policies/reset")
+def reset_policies() -> dict:
+    """Restore the store to its seed (raw.json)."""
+    _policy_store.reset()
+    return _policy_store.snapshot()
 
 
 # --------------------------------------------------------------------------- #
@@ -174,9 +215,12 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
     time DFSI achieved against the threshold alarm.
     """
     try:
-        state = replay_engine.build_state(replay_engine.load_replay(request.replay_id))
+        replay = _load_replay(request.replay_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown replay {request.replay_id!r}")
+    state = replay_engine.build_state(replay)
+    policy_version = replay["policy_version"]
+    policy = replay["policy"]
 
     async def events():
         yield _sse(
@@ -190,6 +234,8 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
                 "model_version": _forecaster.model_version,
                 "feature_version": _forecaster.feature_version,
                 "forecaster_ready": _forecaster.ready,
+                "policy_version": policy_version,
+                "policy": policy,
             }
         )
         windows_after_bell = 0
@@ -230,6 +276,9 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
                     else None
                 ),
                 "windows_streamed": state.cursor,
+                "policy_version": policy_version,
+                "policy": policy,
+                **replay_engine.run_stats(state),
             }
         )
 
@@ -332,19 +381,24 @@ def _build_bundle(
 # --------------------------------------------------------------------------- #
 @app.post("/api/decision", response_model=DecisionRecord)
 def record_decision(request: DecisionRequest) -> DecisionRecord:
-    """Append a simulated decision to the audit log.
+    """Record a human decision, and apply an approved threshold change.
 
-    This endpoint deliberately has no side effect on any DDoS policy. It exists
-    so the demo can show the approval step and so every forecast a human acted
-    on is traceable to a model version.
+    Approving "tighten the vector threshold" writes the suggested per-type
+    lines into DFSI's simulated policy store, so the next run of any replay on
+    that range is played under them. Every other decision is recorded only.
+    Nothing reaches Behemoth, Shared State or a customer's configuration.
+    Every record is traceable to the model version and the policy version.
     """
     try:
-        replay = replay_engine.load_replay(request.replay_id)
+        replay = _load_replay(request.replay_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown replay {request.replay_id!r}")
 
     candidate = CANDIDATES_BY_KEY[request.policy_key]
     policy_change = None
+    applied = False
+    policy_version_before = replay["policy_version"]
+    policy_version_after = policy_version_before
     if candidate.key == "tighten_vector":
         # Recomputed here rather than trusted from the client, so the audit
         # record states exactly which thresholds the human signed off on.
@@ -364,6 +418,32 @@ def record_decision(request: DecisionRequest) -> DecisionRecord:
                 if s.apply
             ],
         }
+        new_lines = plan.applied_thresholds if plan.available else {}
+        if request.verdict in ("approved", "changed") and new_lines:
+            policy_version_after = _policy_store.apply_change(
+                int(replay["range_id"]),
+                new_lines,
+                provenance={
+                    "replay_id": request.replay_id,
+                    "decision_epoch": request.decision_epoch,
+                    "operator": request.operator,
+                    "verdict": request.verdict,
+                    "basis": "past-week thresholds",
+                },
+            )
+            applied = True
+
+    if applied:
+        note_to_auditor = (
+            f"Applied to DFSI's simulated policy store (version {policy_version_after}). "
+            "Replays on this range now run under the new lines. No real policy, "
+            "Behemoth rule or customer configuration was changed."
+        )
+    else:
+        note_to_auditor = (
+            "Decision recorded for audit. Only an approved threshold change is "
+            "applied, and only to DFSI's simulated policy store; nothing changed."
+        )
     record = DecisionRecord(
         recorded_at_epoch=int(time.time()),
         replay_id=request.replay_id,
@@ -376,6 +456,10 @@ def record_decision(request: DecisionRequest) -> DecisionRecord:
         model_version=request.model_version,
         feature_version=_forecaster.feature_version,
         policy_change=policy_change,
+        applied=applied,
+        policy_version_before=policy_version_before,
+        policy_version_after=policy_version_after,
+        note_to_auditor=note_to_auditor,
     )
 
     PATHS.decisions.mkdir(parents=True, exist_ok=True)
@@ -423,7 +507,7 @@ def _replay_and_decision_epoch(
     back to the last window keeps the endpoint usable on quiet scenarios.
     """
     try:
-        replay = replay_engine.load_replay(replay_id)
+        replay = _load_replay(replay_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown replay {replay_id!r}")
 

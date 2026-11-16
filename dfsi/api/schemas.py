@@ -42,7 +42,8 @@ class ExplainRequest(BaseModel):
 
 
 class DecisionRequest(BaseModel):
-    """Record a human's decision. Simulated — nothing is applied."""
+    """Record a human's decision. An approved threshold change is applied to
+    DFSI's simulated policy store; nothing real is ever changed."""
 
     replay_id: str = Field(..., min_length=1, max_length=120)
     decision_epoch: int
@@ -69,10 +70,13 @@ class DecisionRecord(BaseModel):
     #: For a threshold change: the concrete per-type thresholds the human
     #: signed off on, and the past-week backtest behind them.
     policy_change: dict[str, Any] | None = None
-    applied: Literal[False] = False
+    #: True when an approved threshold change was written to DFSI's simulated
+    #: policy store. Never means a real policy or customer config changed.
+    applied: bool = False
+    policy_version_before: int | None = None
+    policy_version_after: int | None = None
     note_to_auditor: str = (
-        "Simulated decision recorded for audit. DFSI is read-only; no policy "
-        "was applied and no traffic was affected."
+        "Decision recorded for audit. Nothing was applied."
     )
 
 

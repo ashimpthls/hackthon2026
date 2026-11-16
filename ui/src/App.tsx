@@ -17,11 +17,14 @@ import type {
   Health,
   ModelCard,
   PolicyKey,
+  PolicySnapshot,
   ReplayEvent,
+  SummaryEvent,
   WindowEvent,
 } from './lib/types'
 import { DecisionBar } from './components/DecisionBar'
 import { EvidencePanel } from './components/EvidencePanel'
+import { PolicyPanel } from './components/PolicyPanel'
 import { RiskGauge } from './components/RiskGauge'
 import { StatusBar } from './components/StatusBar'
 import { Timeline } from './components/Timeline'
@@ -57,6 +60,24 @@ export default function App() {
   const [lastDecision, setLastDecision] = useState<DecisionRecord | null>(null)
   const [decisionBusy, setDecisionBusy] = useState(false)
   const [decisionError, setDecisionError] = useState<string | null>(null)
+
+  // The simulated policy store, and each replay's finished runs (so a run
+  // after an approval can be compared with the run before it).
+  const [policies, setPolicies] = useState<PolicySnapshot | null>(null)
+  const [policyBusy, setPolicyBusy] = useState(false)
+  const [runs, setRuns] = useState<Record<string, SummaryEvent[]>>({})
+
+  const refreshPolicies = useCallback(async () => {
+    try {
+      setPolicies(await api.policies())
+    } catch {
+      // Informational: the replay still runs under whatever the API holds.
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshPolicies()
+  }, [refreshPolicies])
 
   // ---------------------------------------------------------------- boot
   useEffect(() => {
@@ -106,6 +127,10 @@ export default function App() {
         setFocusEpoch(event.window_start_epoch)
         break
       case 'summary':
+        setRuns((previous) => ({
+          ...previous,
+          [event.replay_id]: [...(previous[event.replay_id] ?? []), event].slice(-5),
+        }))
         break
       case 'error':
         setStreamError(event.message)
@@ -179,24 +204,46 @@ export default function App() {
       setDecisionBusy(true)
       setDecisionError(null)
       try {
-        setLastDecision(
-          await api.decide({
-            replayId: selectedReplay,
-            decisionEpoch: epoch,
-            policyKey: selectedPolicy,
-            verdict,
-            note,
-            modelVersion: health?.model_version ?? 'unknown',
-          }),
-        )
+        const record = await api.decide({
+          replayId: selectedReplay,
+          decisionEpoch: epoch,
+          policyKey: selectedPolicy,
+          verdict,
+          note,
+          modelVersion: health?.model_version ?? 'unknown',
+        })
+        setLastDecision(record)
+        // An applied change makes the drill on screen stale: it was simulated
+        // under the old lines. Refresh the store so the panel shows the new ones.
+        if (record.applied) {
+          setDrill(null)
+          await refreshPolicies()
+        }
       } catch (error) {
         setDecisionError(error instanceof Error ? error.message : String(error))
       } finally {
         setDecisionBusy(false)
       }
     },
-    [drill?.decision_epoch, focusEpoch, health?.model_version, selectedPolicy, selectedReplay],
+    [
+      drill?.decision_epoch,
+      focusEpoch,
+      health?.model_version,
+      refreshPolicies,
+      selectedPolicy,
+      selectedReplay,
+    ],
   )
+
+  const resetPolicies = useCallback(async () => {
+    setPolicyBusy(true)
+    try {
+      setPolicies(await api.resetPolicies())
+      setDrill(null)
+    } finally {
+      setPolicyBusy(false)
+    }
+  }, [])
 
   // ---------------------------------------------------------------- render
   const latest = windows.length > 0 ? windows[windows.length - 1] : null
@@ -246,6 +293,15 @@ uvicorn dfsi.api.app:app --port 8000`}
             leadSeconds={latest?.lead_seconds ?? null}
             bellRung={Boolean(latest?.shared_state.declared)}
           />
+          <PolicyPanel
+            rangeId={catalogue.find((entry) => entry.replay_id === selectedReplay)?.range_id ?? null}
+            snapshot={policies}
+            runs={selectedReplay ? (runs[selectedReplay] ?? []) : []}
+            onReset={resetPolicies}
+            onReplay={start}
+            canReplay={Boolean(selectedReplay) && !running && Boolean(health?.forecaster_ready)}
+            busy={policyBusy || running}
+          />
         </div>
 
         <div className="column-right">
@@ -281,6 +337,8 @@ uvicorn dfsi.api.app:app --port 8000`}
             modelVersion={health?.model_version ?? 'unknown'}
             decisionEpoch={drill?.decision_epoch ?? focusEpoch}
             onDecide={decide}
+            onReplay={start}
+            canReplay={!running}
             lastDecision={lastDecision}
             busy={decisionBusy}
             error={decisionError}

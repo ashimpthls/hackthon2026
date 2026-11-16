@@ -208,6 +208,45 @@ def _aggregate(rows: list[dict]) -> dict:
     }
 
 
+def run_stats(state: ReplayState) -> dict:
+    """What the wall and the bell did over the windows streamed so far.
+
+    Lets two runs of the same attack under different policies be compared:
+    how much was dropped at the wall, the most that still reached the range,
+    and when (relative to the episode's start) the bell rang. The wall and
+    bell figures cover the whole episode — the stream stops shortly after the
+    bell, and a run whose bell rings earlier would otherwise cover less of the
+    attack. The warning is DFSI's, so it is as far as the stream got.
+    """
+    if not state.instants:
+        return {}
+    start = state.instants[0][0]
+    window = state.instants[1][0] - start if len(state.instants) > 1 else 10
+    total = blocked = 0.0
+    peak_passed = 0.0
+    declared_windows = 0
+    first_declared: int | None = None
+    for epoch, rows in state.instants:
+        window_total = sum(float(r.get("total_pps", 0.0)) for r in rows)
+        window_blocked = sum(float(r.get("blocked_pps", 0.0)) for r in rows)
+        total += window_total
+        blocked += window_blocked
+        peak_passed = max(peak_passed, window_total - window_blocked)
+        if any(int(r.get("declared", 0)) for r in rows):
+            declared_windows += 1
+            if first_declared is None:
+                first_declared = epoch
+    return {
+        "blocked_share_total": round(blocked / total, 4) if total else 0.0,
+        "peak_passed_pps": round(peak_passed, 1),
+        "seconds_declared": declared_windows * window,
+        "bell_after_seconds": (first_declared - start) if first_declared is not None else None,
+        "warning_after_seconds": (
+            state.first_warning_epoch - start if state.first_warning_epoch is not None else None
+        ),
+    }
+
+
 def flat_history(state: ReplayState) -> list[dict]:
     """The lookback window, flattened, for the evidence bundle."""
     rows: list[dict] = []

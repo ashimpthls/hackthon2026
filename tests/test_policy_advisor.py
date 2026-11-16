@@ -271,10 +271,13 @@ def test_an_approved_threshold_change_is_recorded_with_its_numbers(tmp_path, mon
     from fastapi.testclient import TestClient
 
     from dfsi.config import PATHS, Paths
+    from dfsi.rehearsal.policy_store import PolicyStore
 
     api = importlib.import_module("dfsi.api.app")  # the module, not the FastAPI object
 
     monkeypatch.setattr(api, "PATHS", Paths(home=tmp_path))  # keep the real audit log clean
+    # A private store, so an approved change cannot leak into other tests.
+    monkeypatch.setattr(api, "_policy_store", PolicyStore.from_file(PATHS.policy_db))
     replay_id = next(
         e["replay_id"]
         for e in json.loads((PATHS.replay / "catalogue.json").read_text())
@@ -293,7 +296,8 @@ def test_an_approved_threshold_change_is_recorded_with_its_numbers(tmp_path, mon
             "verdict": "approved",
         },
     ).json()
-    assert record["applied"] is False
+    # Applied to the simulated store exactly when the plan changes something.
+    assert record["applied"] is bool(record["policy_change"]["per_type"])
     assert record["policy_change"]["basis"] == "past-week thresholds"
     assert record["policy_change"]["change"] == drill["policy_plan"]["change"]
     logged = (tmp_path / "data" / "decisions" / "decisions.jsonl").read_text().splitlines()

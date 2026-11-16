@@ -8,6 +8,7 @@ import type {
   Health,
   ModelCard,
   PolicyKey,
+  PolicySnapshot,
   ReplayEvent,
 } from './types'
 
@@ -77,6 +78,8 @@ export const api = {
       model_version: input.modelVersion,
     }),
   decisions: () => getJson<{ decisions: DecisionRecord[] }>('/api/decisions'),
+  policies: () => getJson<PolicySnapshot>('/api/policies'),
+  resetPolicies: () => postJson<PolicySnapshot>('/api/policies/reset', {}),
 }
 
 /**
