@@ -61,7 +61,9 @@ class EvidenceBundle:
         add(self.range_id)
         add(self.account_id)
         for item in self.evidence:
-            add(item.get("value"))
+            # Every figure the evidence tool shows an agent is one it may quote.
+            for key in ("value", "importance", "contribution"):
+                add(item.get(key))
         for row in self.recent_windows:
             for value in row.values():
                 add(value)

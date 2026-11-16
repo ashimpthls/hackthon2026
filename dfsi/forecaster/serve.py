@@ -14,10 +14,12 @@ guarantees matter here:
 from __future__ import annotations
 
 import logging
+import math
 import pickle
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ..config import (
@@ -109,6 +111,9 @@ class ForecasterService:
         self._model = None
         self._features: list[str] = list(FEATURE_COLUMNS)
         self._importance: dict[str, float] = {}
+        #: Typical quiet-window value of each feature; the yardstick for
+        #: per-alert attribution. Empty for models saved before it existed.
+        self._reference: dict[str, float] = {}
         self.model_version = "unavailable"
         self.feature_version = FEATURE_VERSION
         self.decision_threshold = 0.55
@@ -131,6 +136,10 @@ class ForecasterService:
             self._model = payload["model"]
             self._features = list(payload.get("features") or FEATURE_COLUMNS)
             self._importance = payload.get("feature_importance") or {}
+            self._reference = {
+                name: float(value)
+                for name, value in (payload.get("feature_reference") or {}).items()
+            }
             self.feature_version = payload.get("feature_version", FEATURE_VERSION)
             self.decision_threshold = float(payload.get("decision_threshold", 0.55))
             self.min_consecutive = int(payload.get("min_consecutive", 2))
@@ -223,17 +232,31 @@ class ForecasterService:
 
     # ------------------------------------------------------------------ #
     def build_evidence(self, row: dict, score: float, top_n: int = 6) -> list[dict]:
-        """Rank the features behind this score, highest importance first.
+        """Rank the features behind *this* score, strongest driver first.
 
         These are the *only* numbers the agents may cite. The agents receive
         this list through a read-only tool and must quote it verbatim.
+
+        Each item carries `contribution`: how much this score falls when that
+        one feature is put back to its typical quiet value. Positive means the
+        feature is pushing risk up, negative that it is holding it down (useful
+        as contrary evidence). The list is ranked by the size of that, so it
+        changes with the alert. Ranking by global importance, as this once did,
+        showed every alert the same handful of features whatever had driven it.
+
+        Occlusion measures each feature on its own, so two correlated features
+        (growth over 10s and over 60s) split the credit unevenly. Read it as
+        "what moves this score", not as an additive decomposition.
+
+        Models saved before the quiet reference existed have no `contribution`
+        and keep the previous global-importance ordering.
         """
         items: list[dict] = []
         for name, label in EVIDENCE_LABELS.items():
             if name not in row:
                 continue
             value = row[name]
-            if value is None:
+            if value is None or not math.isfinite(float(value)):
                 continue
             items.append(
                 {
@@ -244,5 +267,39 @@ class ForecasterService:
                     "traffic_type": row.get("traffic_type"),
                 }
             )
-        items.sort(key=lambda item: (item["importance"], abs(item["value"])), reverse=True)
+
+        contributions = self._contributions(row, score, [item["feature"] for item in items])
+        if contributions is None:
+            items.sort(key=lambda item: (item["importance"], abs(item["value"])), reverse=True)
+        else:
+            for item in items:
+                item["contribution"] = round(contributions.get(item["feature"], 0.0), 4)
+            items.sort(
+                key=lambda item: (abs(item["contribution"]), item["importance"], abs(item["value"])),
+                reverse=True,
+            )
         return items[:top_n]
+
+    def _contributions(self, row: dict, score: float, names: list[str]) -> dict[str, float] | None:
+        """Score drop when each feature alone is reset to its quiet value.
+
+        One batched model call for all features. Explanation is not safety, so
+        any failure here is logged and the caller falls back to the global
+        ordering instead of losing the forecast.
+        """
+        names = [name for name in names if name in self._reference and name in self._features]
+        if not names:
+            return None
+        try:
+            base = np.array(
+                [np.nan if row[col] is None else float(row[col]) for col in self._features],
+                dtype=float,
+            )
+            batch = np.tile(base, (len(names) + 1, 1))
+            for offset, name in enumerate(names, start=1):
+                batch[offset, self._features.index(name)] = self._reference[name]
+            occluded = self._model.predict_proba(pd.DataFrame(batch, columns=self._features))[:, 1]
+        except Exception:
+            log.warning("could not attribute the score; using global importance", exc_info=True)
+            return None
+        return {name: float(score - occluded[offset]) for offset, name in enumerate(names, start=1)}
