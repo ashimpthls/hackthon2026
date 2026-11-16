@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -175,11 +174,14 @@ class ExplainerOrchestrator:
         self,
         api_key: str | None = None,
         model: str = MODEL,
-        clock: Callable[[], float] = time.time,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self.model = model
-        #: Source of "now" for the freshness check when a bundle carries no
-        #: clock of its own. Injectable so staleness is testable.
+        #: Wall clock for the staleness half of the freshness check; pass
+        #: `time.time` when explaining live data. Unset (the replay-only
+        #: default), a bundle is judged against its own forecast epoch, so the
+        #: look-ahead half still runs but recorded epochs are not compared with
+        #: today's date and rejected as years old.
         self._clock = clock
         self._api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self._client = None
@@ -329,7 +331,7 @@ class ExplainerOrchestrator:
         # Validate what the agent actually said. The ids are stamped on only
         # afterwards: stamping them first would hand the tenant-scope check the
         # very values it is meant to verify.
-        now_epoch = bundle.as_of_epoch if bundle.as_of_epoch is not None else int(self._clock())
+        now_epoch = self._now_epoch(bundle)
         report = validate(
             output,
             required_fields=required_fields,
@@ -367,6 +369,18 @@ class ExplainerOrchestrator:
             tool_calls=toolbox.calls,
             model_version=self.model if engine == "claude" else None,
         )
+
+    def _now_epoch(self, bundle: EvidenceBundle) -> int:
+        """The instant `bundle`'s evidence is judged against.
+
+        In order: the bundle's own clock (a replay's decision epoch), the wall
+        clock if one was configured, else the forecast's own epoch.
+        """
+        if bundle.as_of_epoch is not None:
+            return bundle.as_of_epoch
+        if self._clock is not None:
+            return int(self._clock())
+        return bundle.window_start_epoch
 
     def _withheld(
         self,

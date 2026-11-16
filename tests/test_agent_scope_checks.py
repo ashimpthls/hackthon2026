@@ -65,7 +65,7 @@ def test_a_current_bundle_passes_freshness(offline):
 
 
 def test_evidence_older_than_the_limit_is_withheld(offline):
-    """Live use: the bundle carries no clock, so the wall clock decides."""
+    """Live use: opt in to a wall clock and stale evidence is refused."""
     stale = make_bundle(as_of_epoch=None)
     orchestrator = ExplainerOrchestrator(api_key=None, clock=lambda: DECISION + 600)
     result = orchestrator.run_investigator(stale)
@@ -74,12 +74,34 @@ def test_evidence_older_than_the_limit_is_withheld(offline):
     assert "old" in " ".join(result.validator_failures)
 
 
+def test_the_bundles_own_clock_wins_over_the_wall_clock():
+    bundle = make_bundle(as_of_epoch=DECISION)
+    orchestrator = ExplainerOrchestrator(api_key=None, clock=lambda: DECISION + 10_000)
+    assert orchestrator.run_investigator(bundle).validator_checks["freshness"] is True
+
+
+def test_recorded_epochs_are_not_judged_against_todays_date(offline):
+    """No clock configured (the replay-only default): a bundle that carries none
+    is judged against its own forecast epoch, not rejected as years old."""
+    result = offline.run_investigator(make_bundle(as_of_epoch=None))
+    assert result.validator_checks["freshness"] is True
+    assert result.validated
+
+
 def test_windows_after_the_decision_are_evidence_from_the_future(offline):
     """A regression in bundle assembly must not let an agent see ahead."""
     leaky = make_bundle(recent_windows=attack_windows())  # runs past DECISION
     result = offline.run_investigator(leaky)
     assert not result.validated
     assert result.validator_checks["freshness"] is False
+    assert "future" in " ".join(result.validator_failures)
+
+
+def test_the_look_ahead_guard_works_without_any_clock_too(offline):
+    """The part of freshness that needs no clock must not depend on one."""
+    leaky = make_bundle(as_of_epoch=None, recent_windows=attack_windows())
+    result = offline.run_investigator(leaky)
+    assert not result.validated
     assert "future" in " ".join(result.validator_failures)
 
 
