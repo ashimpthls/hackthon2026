@@ -26,9 +26,6 @@ from ..config import (
     FEATURE_VERSION,
     HORIZON_SECONDS,
     PATHS,
-    RISK_BAND_CRITICAL,
-    RISK_BAND_WARN,
-    RISK_BAND_WATCH,
     STATE_ABOUT_TO_START,
     STATE_MONITORING_ONLY,
 )
@@ -55,14 +52,43 @@ EVIDENCE_LABELS: dict[str, str] = {
 }
 
 
-def risk_band(score: float) -> str:
-    if score >= RISK_BAND_CRITICAL:
-        return "critical"
-    if score >= RISK_BAND_WARN:
-        return "warn"
-    if score >= RISK_BAND_WATCH:
-        return "watch"
-    return "calm"
+@dataclass(frozen=True)
+class RiskBands:
+    """Where each band starts, anchored on the model's decision threshold.
+
+    The threshold is calibrated per model, so a fixed 0.35 / 0.60 / 0.80 scale
+    contradicted it: with a threshold of 0.65 a score of 0.64 read "warn" while
+    the state stayed `QUIET`, and a model calibrated at 0.40 would have been
+    raising warnings from the "watch" band.
+
+    `warn` begins exactly at the threshold, so a window is in the warn band or
+    above if and only if it counts as above threshold. `watch` begins at half
+    the threshold, and `critical` halfway between the threshold and certainty.
+    """
+
+    watch: float
+    warn: float
+    critical: float
+
+    @classmethod
+    def for_threshold(cls, threshold: float) -> RiskBands:
+        # `not (0 < x < 1)` also rejects NaN, which every comparison misses.
+        if not 0.0 < threshold < 1.0:
+            raise ValueError(f"decision threshold must lie strictly between 0 and 1, got {threshold}")
+        return cls(
+            watch=threshold / 2.0,
+            warn=threshold,
+            critical=threshold + (1.0 - threshold) / 2.0,
+        )
+
+    def band(self, score: float) -> str:
+        if score >= self.critical:
+            return "critical"
+        if score >= self.warn:
+            return "warn"
+        if score >= self.watch:
+            return "watch"
+        return "calm"
 
 
 @dataclass(frozen=True)
@@ -117,6 +143,7 @@ class ForecasterService:
         self.model_version = "unavailable"
         self.feature_version = FEATURE_VERSION
         self.decision_threshold = 0.55
+        self.bands = RiskBands.for_threshold(self.decision_threshold)
         self.min_consecutive = 2
         self.load_error: str | None = None
         self._load()
@@ -142,6 +169,9 @@ class ForecasterService:
             }
             self.feature_version = payload.get("feature_version", FEATURE_VERSION)
             self.decision_threshold = float(payload.get("decision_threshold", 0.55))
+            # A threshold the bands cannot be built from means a corrupt model:
+            # refuse to score (degraded) rather than label risk on a broken scale.
+            self.bands = RiskBands.for_threshold(self.decision_threshold)
             self.min_consecutive = int(payload.get("min_consecutive", 2))
             version = payload.get("model_version") or ""
             run_id = payload.get("mlflow_run_id") or ""
@@ -197,7 +227,7 @@ class ForecasterService:
             log.exception("scoring failed for range %s", range_id)
             return self._degraded(epoch, range_id, account_id, f"scoring error: {exc}")
 
-        band = risk_band(score)
+        band = self.bands.band(score)
         return Forecast(
             window_start_epoch=epoch,
             range_id=range_id,
