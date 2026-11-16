@@ -15,8 +15,19 @@ from pathlib import Path
 # Versions. Bump these when the contract changes; every prediction records
 # both so a stored forecast can always be traced back to how it was produced.
 # --------------------------------------------------------------------------- #
-FEATURE_VERSION = "features-v2"
-SCENARIO_SET_VERSION = "synthetic-v1"
+FEATURE_VERSION = "features-v3"
+SCENARIO_SET_VERSION = "synthetic-v2"
+
+# --------------------------------------------------------------------------- #
+# Leakage discipline in time. An episode's hour-of-week baseline is built only
+# from the same hour in earlier weeks, so the first week is warm-up and never
+# reaches the feature table. Evaluation is split by whole weeks counted back
+# from the latest one: the model is always tested on a week it has never seen,
+# after every week it was fitted or calibrated on.
+# --------------------------------------------------------------------------- #
+BASELINE_LOOKBACK_WEEKS = 4
+TEST_WEEKS = 1
+CALIBRATION_WEEKS = 1
 
 # --------------------------------------------------------------------------- #
 # Time geometry. ANL summarises blocked traffic in 10-second windows; DFSI

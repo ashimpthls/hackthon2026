@@ -603,7 +603,7 @@ _TOOL_SCHEMAS: dict[str, dict] = {
         "name": "get_source_profile",
         "description": (
             "Read the source-country concentration index, how it changed over the "
-            "last minute, and how many prior attack episodes this account has had. "
+            "last minute, and how many attack episodes this account had in the past 6 hours. "
             "No IP addresses are available."
         ),
         "strict": True,

@@ -1,11 +1,11 @@
 """Memory, part 3 — the pipeline driver.
 
-    synthetic episodes -> raw windows (parquet)
-                       -> hour-of-week baselines (parquet)
-                       -> feature table + 120s label (parquet)
-                       -> per-scenario replay files (json, for the UI)
+    synthetic episodes -> raw windows (parquet, one file per week)
+                       -> past-only hour-of-week baselines (parquet)
+                       -> feature table + 120s label (parquet; warm-up week dropped)
+                       -> per-scenario replay files (json, for the UI; test week only)
 
-Run with:  python -m dfsi.memory.pipeline --days 7
+Run with:  python -m dfsi.memory.pipeline --days 28
 """
 
 from __future__ import annotations
@@ -13,17 +13,38 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
+from collections import Counter, defaultdict
 from pathlib import Path
 
-from ..config import PATHS, SCENARIO_SET_VERSION, thresholds_for
+import pandas as pd
+from pyspark.sql import functions as F
+
+from ..config import (
+    CALIBRATION_WEEKS,
+    PATHS,
+    SCENARIO_SET_VERSION,
+    TEST_WEEKS,
+    thresholds_for,
+)
 from .features import (
+    LABEL_COLUMN,
     RAW_SCHEMA,
     build_features,
     build_spark,
-    compute_baselines,
+    compute_trailing_baselines,
     with_time_keys,
 )
-from .scenarios import DEFAULT_RANGES, iter_rows, plan_week
+from .scenarios import (
+    ATTACK_SCENARIOS,
+    DEFAULT_RANGES,
+    EpisodePlan,
+    generate_episode_columns,
+    plan_week,
+)
+
+#: Warm-up (baseline only) + at least one fit week + calibration + test.
+MIN_WEEKS_FOR_TIME_SPLIT = 2 + CALIBRATION_WEEKS + TEST_WEEKS
 
 log = logging.getLogger("dfsi.memory")
 
@@ -66,49 +87,61 @@ REPLAY_COLUMNS = (
 )
 
 
-def run(days: int = 7, environment: str | None = None, replay_per_type: int = 2) -> dict:
+def run(days: int = 28, environment: str | None = None, replay_per_type: int = 2) -> dict:
     """Build the whole Memory layer. Returns a summary dict."""
     thresholds = thresholds_for(environment)
     for directory in (PATHS.raw_windows, PATHS.baselines, PATHS.features, PATHS.replay):
         directory.parent.mkdir(parents=True, exist_ok=True)
 
     plans = plan_week(DEFAULT_RANGES, days=days)
-    log.info("planned %d episodes over %d days", len(plans), days)
+    weeks = sorted({plan.week_index for plan in plans})
+    log.info("planned %d episodes over %d days (%d weeks)", len(plans), days, len(weeks))
+    if len(weeks) < MIN_WEEKS_FOR_TIME_SPLIT:
+        log.warning(
+            "only %d weeks planned; the time split needs %d (warm-up, fit, calibration, test). "
+            "Train with `--split scenario` or build more days.",
+            len(weeks),
+            MIN_WEEKS_FOR_TIME_SPLIT,
+        )
+
+    window_count = _write_raw_windows(plans)
+    log.info("generated %d raw windows", window_count)
 
     spark = build_spark()
     try:
-        rows = list(iter_rows(plans))
-        log.info("generated %d raw windows", len(rows))
-        raw = spark.createDataFrame(rows, schema=RAW_SCHEMA)
-        raw.write.mode("overwrite").parquet(str(PATHS.raw_windows))
         raw = spark.read.parquet(str(PATHS.raw_windows))
 
-        baselines = compute_baselines(with_time_keys(raw)).cache()
+        baselines = compute_trailing_baselines(with_time_keys(raw)).cache()
         baselines.write.mode("overwrite").parquet(str(PATHS.baselines))
 
         features = build_features(raw, baselines, thresholds).cache()
         features.write.mode("overwrite").parquet(str(PATHS.features))
 
         label_counts = {
-            int(r["label_onset_120s"]): int(r["n"])
-            for r in features.groupBy("label_onset_120s").count().withColumnRenamed("count", "n").collect()
+            int(r[LABEL_COLUMN]): int(r["count"])
+            for r in features.groupBy(LABEL_COLUMN).count().collect()
         }
         by_type = {
-            r["scenario_type"]: int(r["n"])
-            for r in features.groupBy("scenario_type")
-            .agg({"scenario_id": "count"})
-            .withColumnRenamed("count(scenario_id)", "n")
-            .collect()
+            r["scenario_type"]: int(r["count"])
+            for r in features.groupBy("scenario_type").count().collect()
         }
-        _write_replays(features, replay_per_type)
+        featurised_weeks = sorted(
+            int(r["week_index"]) for r in features.select("week_index").distinct().collect()
+        )
+        test_weeks = featurised_weeks[-TEST_WEEKS:]
+        _write_replays(features, replay_per_type, test_weeks)
         summary = {
             "scenario_set_version": SCENARIO_SET_VERSION,
             "environment": thresholds.environment,
+            "days": days,
             "episodes": len(plans),
-            "windows": len(rows),
+            "episodes_by_type": dict(sorted(Counter(p.scenario_type for p in plans).items())),
+            "windows": window_count,
+            "weeks": weeks,
+            "featurised_weeks": featurised_weeks,
+            "replay_weeks": test_weeks,
             "label_counts": label_counts,
             "rows_by_scenario_type": by_type,
-            "features_path": str(PATHS.features),
         }
     finally:
         spark.stop()
@@ -117,27 +150,76 @@ def run(days: int = 7, environment: str | None = None, replay_per_type: int = 2)
     return summary
 
 
-def _write_replays(features, per_type: int) -> None:
+def _write_raw_windows(plans: list[EpisodePlan]) -> int:
+    """Generate the logbook straight to parquet, one file per week.
+
+    Columnar generation keeps a multi-week logbook out of Python dicts; Spark
+    reads the directory back with the same schema it would have inferred.
+    """
+    target = PATHS.raw_windows
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+
+    columns = [field.name for field in RAW_SCHEMA.fields]
+    by_week: dict[int, list[EpisodePlan]] = defaultdict(list)
+    for plan in plans:
+        by_week[plan.week_index].append(plan)
+
+    total = 0
+    for week, week_plans in sorted(by_week.items()):
+        frame = pd.concat(
+            [pd.DataFrame(generate_episode_columns(plan)) for plan in week_plans],
+            ignore_index=True,
+        )[columns]
+        frame.to_parquet(target / f"week-{week:02d}.parquet", index=False)
+        total += len(frame)
+    return total
+
+
+def _write_replays(features, per_type: int, weeks: list[int]) -> None:
     """Export a handful of complete scenarios as JSON for the UI replay.
 
     One replay = every window of one episode for one range, ordered in time,
     so the dashboard can stream it without Spark in the loop.
+
+    Replays come from the held-out test week(s) only, so the demo never shows
+    the model a scenario it was fitted or calibrated on. Within a family,
+    attack replays that actually ring the bell come first, and ranges are
+    spread before any range repeats.
     """
     PATHS.replay.mkdir(parents=True, exist_ok=True)
+    for stale in PATHS.replay.glob("*.json"):
+        stale.unlink()
     catalogue: list[dict] = []
 
     picks = (
-        features.select("scenario_id", "scenario_type", "range_id", "label_onset_120s")
+        features.filter(F.col("week_index").isin(weeks))
         .groupBy("scenario_id", "scenario_type", "range_id")
-        .max("label_onset_120s")
-        .withColumnRenamed("max(label_onset_120s)", "has_onset")
+        .agg(F.max(LABEL_COLUMN).alias("has_onset"))
         .collect()
     )
+    candidates: dict[str, list] = defaultdict(list)
+    for row in picks:
+        candidates[row["scenario_type"]].append(row)
+
     chosen: dict[str, list] = {}
-    for row in sorted(picks, key=lambda r: (r["scenario_type"], r["scenario_id"])):
-        bucket = chosen.setdefault(row["scenario_type"], [])
-        if len(bucket) < per_type:
-            bucket.append(row)
+    for scenario_type, rows in sorted(candidates.items()):
+        prefer_onset = scenario_type in ATTACK_SCENARIOS
+        ordered = sorted(
+            rows,
+            key=lambda r: (prefer_onset and not r["has_onset"], r["scenario_id"]),
+        )
+        bucket: list = []
+        seen_ranges: set[int] = set()
+        for row in ordered:  # first pass: one per range
+            if len(bucket) < per_type and row["range_id"] not in seen_ranges:
+                bucket.append(row)
+                seen_ranges.add(row["range_id"])
+        for row in ordered:  # then fill
+            if len(bucket) < per_type and row not in bucket:
+                bucket.append(row)
+        chosen[scenario_type] = bucket
 
     for scenario_type, rows in chosen.items():
         for row in rows:
@@ -178,7 +260,12 @@ def _write_replays(features, per_type: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build the DFSI Memory layer")
-    parser.add_argument("--days", type=int, default=7)
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=28,
+        help="days of history; the first week is baseline warm-up only",
+    )
     parser.add_argument("--env", default=None, help="stage (default) or prod thresholds")
     parser.add_argument("--replay-per-type", type=int, default=2)
     args = parser.parse_args()

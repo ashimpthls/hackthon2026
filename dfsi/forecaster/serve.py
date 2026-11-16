@@ -43,7 +43,7 @@ EVIDENCE_LABELS: dict[str, str] = {
     "baseline_deviation_pps_max_hour": "strongest per-vector deviation on this range",
     "country_hhi": "source-country concentration",
     "country_hhi_delta_60s": "shift in source-country concentration over 60s",
-    "account_attack_history": "prior attack episodes on this account",
+    "account_attack_history": "attack episodes on this account in the past 6 hours",
     "blocked_share": "share of traffic currently blocked",
     "blocked_share_delta_60s": "change in blocked share over 60s",
     "anomaly_persistence": "consecutive abnormal windows",

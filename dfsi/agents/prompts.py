@@ -54,14 +54,19 @@ One question: is this an attack beginning, or a legitimate surge?
 Gather evidence with your tools, then answer. The distinction that matters \
 most in practice:
 
-- A **flash crowd** (product launch, news event, campaign) shows growth across \
-traffic types, a source mix that broadens or stays diverse, and a shape that \
-rises smoothly. Blocked share stays low relative to the policy.
-- An **attack** concentrates on one vector, shows a source mix that narrows, \
-often pulses rather than rising smoothly, and pushes blocked share up fast.
+- A **flash crowd** (product launch, news event, campaign) is usually web-led \
+and rises smoothly. Blocked share stays low relative to the policy. A regional \
+event can narrow the source mix, so concentration alone does not prove an \
+attack.
+- An **attack** usually concentrates on one vector, often pulses rather than \
+rising smoothly, and pushes blocked share up fast. Reflection narrows the \
+source mix; a distributed botnet can leave it broad. Carpet bombing spreads \
+across every traffic type at once.
 - A **gradual build-up** is the hard case: slow, deliberate ramping that looks \
-like organic growth until it does not. Prior attack history on the account and \
-sustained abnormal windows are the tell.
+like organic growth until it does not. Recent attack episodes on the account \
+and sustained abnormal windows are the tell.
+
+No single signal decides it. Weigh several, and say which ones disagree.
 
 State your reading, name the evidence that drove it, and name the evidence \
 that argues against it. If the picture is genuinely ambiguous, say so — \
@@ -82,6 +87,12 @@ Read the policy candidates and, if a drill has been run, the simulation \
 results. Then for each option state plainly what it buys and what it costs — \
 how much of the attack it removes, what legitimate traffic it harms, how wide \
 its blast radius is, and how fast it can be undone.
+
+When the drill carries a `policy_plan`, the tighten option is a concrete \
+per-traffic-type policy threshold learned from at least a week of this range's \
+traffic, with a backtest of what it would have dropped over that week. Quote \
+the current and suggested thresholds and the backtest exactly. If the plan is \
+unavailable, say why and that the option's figures are stated assumptions.
 
 Be explicit about collateral damage. A diversion of a whole range can also \
 catch unrelated services on it (see PPNG-6760: a /24 block has caught Teams \

@@ -39,6 +39,7 @@ from ..config import (
 )
 from ..forecaster.alerting import AlertTracker
 from ..forecaster.serve import ForecasterService
+from ..rehearsal.policy_advisor import PolicyPlan, suggest_policy
 from ..rehearsal.simulator import CANDIDATES_BY_KEY, run_drill
 from . import replay as replay_engine
 from .schemas import (
@@ -56,6 +57,9 @@ log = logging.getLogger("dfsi.api")
 KNOWN_LIMITATIONS = [
     "Trained and evaluated on synthetic traffic only. Real-world performance "
     "is unmeasured.",
+    "Evaluated on one held-out synthetic week that follows every week the "
+    "model was fitted or calibrated on. One week is a small sample; treat "
+    "the headline figures as estimates, not guarantees.",
     "Recovery scenarios open mid-attack, so there is no runway to forecast "
     "from. They are excluded from the head-start figures and reported "
     "separately as `in_progress_detected` — a detection rate, not a warning.",
@@ -248,7 +252,8 @@ def drill(request: DrillRequest) -> dict:
     replay, decision_epoch = _replay_and_decision_epoch(
         request.replay_id, request.decision_epoch
     )
-    result = run_drill(replay["windows"], decision_epoch, request.environment)
+    plan = _policy_plan(replay, decision_epoch, request.environment)
+    result = run_drill(replay["windows"], decision_epoch, request.environment, plan)
     result["replay_id"] = request.replay_id
     result["scenario_type"] = replay["scenario_type"]
     return result
@@ -299,7 +304,9 @@ def _build_bundle(
     recent = [row for row in rows if int(row["window_start_epoch"]) in set(lookback_epochs)]
 
     simulation = (
-        run_drill(replay["windows"], decision_epoch) if include_simulation else None
+        run_drill(replay["windows"], decision_epoch, None, _policy_plan(replay, decision_epoch))
+        if include_simulation
+        else None
     )
     return EvidenceBundle(
         range_id=forecast.range_id,
@@ -332,11 +339,31 @@ def record_decision(request: DecisionRequest) -> DecisionRecord:
     on is traceable to a model version.
     """
     try:
-        replay_engine.load_replay(request.replay_id)
+        replay = replay_engine.load_replay(request.replay_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown replay {request.replay_id!r}")
 
     candidate = CANDIDATES_BY_KEY[request.policy_key]
+    policy_change = None
+    if candidate.key == "tighten_vector":
+        # Recomputed here rather than trusted from the client, so the audit
+        # record states exactly which thresholds the human signed off on.
+        plan = _policy_plan(replay, request.decision_epoch)
+        policy_change = {
+            "basis": "past-week thresholds" if plan.available else "stated assumption",
+            "change": plan.describe_change() if plan.available else None,
+            "reason": plan.reason,
+            "per_type": [
+                {
+                    "traffic_type": s.traffic_type,
+                    "current_policy_pps": s.current_policy_pps,
+                    "suggested_policy_pps": s.suggested_policy_pps,
+                    "backtest_legit_lost_pct": s.backtest_legit_lost_pct,
+                }
+                for s in plan.per_type
+                if s.apply
+            ],
+        }
     record = DecisionRecord(
         recorded_at_epoch=int(time.time()),
         replay_id=request.replay_id,
@@ -348,6 +375,7 @@ def record_decision(request: DecisionRequest) -> DecisionRecord:
         note=request.note,
         model_version=request.model_version,
         feature_version=_forecaster.feature_version,
+        policy_change=policy_change,
     )
 
     PATHS.decisions.mkdir(parents=True, exist_ok=True)
@@ -367,6 +395,24 @@ def list_decisions(limit: int = 50) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+def _policy_plan(
+    replay: dict, decision_epoch: int, environment: str | None = None
+) -> PolicyPlan:
+    """Per-type threshold suggestion from the week of traffic before this episode."""
+    windows = replay["windows"]
+    episode_start = min(int(row["window_start_epoch"]) for row in windows)
+    current = [row for row in windows if int(row["window_start_epoch"]) == decision_epoch]
+    try:
+        return suggest_policy(int(replay["range_id"]), episode_start, current, environment)
+    except Exception as exc:  # history is optional; the drill still runs without it
+        log.exception("policy suggestion failed for %s", replay.get("replay_id"))
+        return PolicyPlan(
+            available=False,
+            range_id=int(replay["range_id"]),
+            reason=f"history could not be read: {exc}",
+        )
+
+
 def _replay_and_decision_epoch(
     replay_id: str, decision_epoch: int | None
 ) -> tuple[dict, int]:

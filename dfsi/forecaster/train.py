@@ -7,14 +7,18 @@ feature list, and a registered model version.
 
 Leakage discipline (the part that makes the numbers trustworthy):
 
-* the split is by whole scenario — `GroupShuffleSplit` on `scenario_id`, so no
-  window from a test scenario is ever in training, and neighbouring windows
-  can never straddle the split;
-* `scenario_id` and `scenario_type` are dropped before fitting;
+* the default split is by time, in whole weeks: the latest week is the test
+  set, the week before it calibrates the threshold, and the model is fitted
+  on everything earlier. Every test scenario happens after every training
+  scenario, as it would in production, and whole scenarios never straddle a
+  boundary;
+* baselines are past-only (see `features.compute_trailing_baselines`), so no
+  test window ever fed a baseline a training window is measured against;
+* `scenario_id`, `scenario_type` and `week_index` are dropped before fitting;
 * the feature list is `FEATURE_COLUMNS`, which contains no future-derived
   column (the label and the `declared`/`is_onset` bookkeeping stay out);
-* stratification is approximated by grouping attack and quiet scenarios and
-  splitting each pool, so rare onsets appear on both sides.
+* `--split scenario` keeps the older random split by whole scenario, with
+  attack and quiet pools split separately so rare onsets land on both sides.
 
 Run with:  python -m dfsi.forecaster.train
 """
@@ -33,12 +37,14 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import GroupShuffleSplit
 
 from ..config import (
+    CALIBRATION_WEEKS,
     FEATURE_VERSION,
     HORIZON_SECONDS,
     MLFLOW_EXPERIMENT,
     MLFLOW_TRACKING_URI,
     PATHS,
     REGISTERED_MODEL_NAME,
+    TEST_WEEKS,
     thresholds_for,
 )
 from ..memory.features import FEATURE_COLUMNS, GROUP_COLUMN, LABEL_COLUMN
@@ -60,8 +66,16 @@ FORBIDDEN_INPUTS = frozenset(
         "is_abnormal",
         "blocked_pps",
         "blocked_mbps",
+        # Split and provenance bookkeeping.
+        "week_index",
+        "source_week_max",
+        "baseline_sample_count",
+        "is_attack_vector",
     }
 )
+
+#: Column the time split is made on.
+WEEK_COLUMN = "week_index"
 
 
 @dataclass(frozen=True)
@@ -87,6 +101,10 @@ class TrainConfig:
     #: Consecutive windows above threshold required to raise a warning.
     min_consecutive: int = 2
     calibrate: bool = True
+    #: "time" (whole weeks; the default) or "scenario" (random whole scenarios).
+    split: str = "time"
+    test_weeks: int = TEST_WEEKS
+    calibration_weeks: int = CALIBRATION_WEEKS
 
 
 def assert_no_leakage(columns: list[str]) -> None:
@@ -140,6 +158,43 @@ def split_by_scenario(
     train = frame[frame[GROUP_COLUMN].isin(train_ids)].copy()
     test = frame[frame[GROUP_COLUMN].isin(test_ids)].copy()
     return train, test
+
+
+def split_by_time(
+    frame: pd.DataFrame, test_weeks: int, calibration_weeks: int
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Fit / calibration / test split on whole weeks, oldest to newest.
+
+    The latest `test_weeks` are the test set, the `calibration_weeks` before
+    them choose the threshold, and everything earlier is fitted on. Episodes
+    are one hour inside one week, so a scenario can never straddle a boundary.
+    """
+    if WEEK_COLUMN not in frame.columns:
+        raise ValueError(
+            f"feature table has no {WEEK_COLUMN!r} column; rebuild it with "
+            "`python -m dfsi.memory.pipeline` or train with `--split scenario`"
+        )
+    weeks = sorted(int(w) for w in frame[WEEK_COLUMN].unique())
+    needed = test_weeks + calibration_weeks + 1
+    if len(weeks) < needed:
+        raise ValueError(
+            f"the time split needs {needed} featurised weeks "
+            f"({test_weeks} test + {calibration_weeks} calibration + at least 1 fit); "
+            f"the feature table has {weeks}. Build more days, e.g. "
+            "`python -m dfsi.memory.pipeline --days 28`, or train with `--split scenario`."
+        )
+    test_set = set(weeks[-test_weeks:])
+    calib_set = set(weeks[-(test_weeks + calibration_weeks) : -test_weeks])
+    week = frame[WEEK_COLUMN].astype(int)
+    fit = frame[~week.isin(test_set | calib_set)].copy()
+    calib = frame[week.isin(calib_set)].copy()
+    test = frame[week.isin(test_set)].copy()
+
+    for earlier, later, name in ((fit, calib, "fit/calibration"), (calib, test, "calibration/test")):
+        overlap = set(earlier[GROUP_COLUMN]) & set(later[GROUP_COLUMN])
+        if overlap:
+            raise AssertionError(f"scenario leaked across the {name} split: {sorted(overlap)[:5]}")
+    return fit, calib, test
 
 
 def calibrate_threshold(
@@ -247,12 +302,19 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
     assert_no_leakage(list(FEATURE_COLUMNS))
 
     frame = load_features()
-    dev_frame, test_frame = split_by_scenario(frame, config.test_size, config.random_state)
-    # Carve the calibration set out of the development half only, so the test
-    # scenarios stay untouched by every decision the pipeline makes.
-    fit_frame, calib_frame = split_by_scenario(
-        dev_frame, config.calibration_size, config.random_state + 100
-    )
+    if config.split == "time":
+        fit_frame, calib_frame, test_frame = split_by_time(
+            frame, config.test_weeks, config.calibration_weeks
+        )
+    elif config.split == "scenario":
+        dev_frame, test_frame = split_by_scenario(frame, config.test_size, config.random_state)
+        # Carve the calibration set out of the development half only, so the
+        # test scenarios stay untouched by every decision the pipeline makes.
+        fit_frame, calib_frame = split_by_scenario(
+            dev_frame, config.calibration_size, config.random_state + 100
+        )
+    else:
+        raise ValueError(f"unknown split {config.split!r}; expected 'time' or 'scenario'")
     log.info(
         "split: %d fit / %d calibration / %d test windows across %d / %d / %d scenarios",
         len(fit_frame),
@@ -317,6 +379,7 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
         "horizon_seconds": HORIZON_SECONDS,
         "features": list(FEATURE_COLUMNS),
         "config": asdict(config),
+        "split": _describe_split(config.split, fit_frame, calib_frame, test_frame),
         "decision_threshold": float(threshold),
         "threshold_sweep": sweep,
         "window_metrics": window_metrics,
@@ -338,6 +401,25 @@ def train(config: TrainConfig | None = None, environment: str | None = None) -> 
     (PATHS.models / "training_report.json").write_text(json.dumps(report, indent=2, default=str))
     _save_local_model(model, report)
     return report
+
+
+def _describe_split(
+    mode: str, fit: pd.DataFrame, calib: pd.DataFrame, test: pd.DataFrame
+) -> dict:
+    """Which weeks and how many scenarios landed in each part — for the report."""
+
+    def part(frame: pd.DataFrame) -> dict:
+        per_scenario = frame.groupby(GROUP_COLUMN)[LABEL_COLUMN].max()
+        info = {
+            "scenarios": int(per_scenario.size),
+            "scenarios_with_onset": int(per_scenario.sum()),
+            "windows": int(len(frame)),
+        }
+        if WEEK_COLUMN in frame.columns:
+            info["weeks"] = sorted(int(w) for w in frame[WEEK_COLUMN].unique())
+        return info
+
+    return {"mode": mode, "fit": part(fit), "calibration": part(calib), "test": part(test)}
 
 
 def _per_type_breakdown(
@@ -442,6 +524,12 @@ def main() -> None:
         help="use --threshold verbatim instead of calibrating it",
     )
     parser.add_argument("--env", default=None)
+    parser.add_argument(
+        "--split",
+        choices=("time", "scenario"),
+        default=TrainConfig.split,
+        help="time: whole weeks, test on the latest (default); scenario: random whole scenarios",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -451,6 +539,7 @@ def main() -> None:
             decision_threshold=args.threshold,
             false_alarm_budget=args.false_alarm_budget,
             calibrate=not args.no_calibrate,
+            split=args.split,
         ),
         environment=args.env,
     )
@@ -458,6 +547,7 @@ def main() -> None:
         json.dumps(
             {
                 "decision_threshold": report["decision_threshold"],
+                "split": report["split"],
                 "dfsi": report["dfsi"],
                 "baseline": report["fixed_threshold_baseline"],
                 "window_metrics": report["window_metrics"],

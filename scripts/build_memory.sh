@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Memory layer — PySpark over the synthetic logbook.
 #
-# Generates a week of ANL-shaped 10-second windows, computes hour-of-week
-# baselines, builds the feature table and the 120-second onset label, and
-# writes the small per-scenario JSON replays the UI streams.
+# Generates four weeks (by default) of ANL-shaped 10-second windows, computes
+# past-only hour-of-week baselines, builds the feature table and the
+# 120-second onset label, and writes the small per-scenario JSON replays the
+# UI streams (from the held-out test week only).
 #
 # Needs a JDK 11/17/21; scripts/env.sh finds one and fails loudly if it cannot.
 set -eu

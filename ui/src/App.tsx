@@ -215,7 +215,7 @@ export default function App() {
             Build the Memory layer and train the forecaster, then restart the API:
           </p>
           <pre>
-            {`python -m dfsi.memory.pipeline --days 7
+            {`python -m dfsi.memory.pipeline --days 28
 python -m dfsi.forecaster.train
 uvicorn dfsi.api.app:app --port 8000`}
           </pre>
@@ -277,6 +277,7 @@ uvicorn dfsi.api.app:app --port 8000`}
           <DecisionBar
             selected={selectedPolicy}
             recommended={recommended}
+            policyPlan={drill?.policy_plan ?? null}
             modelVersion={health?.model_version ?? 'unknown'}
             decisionEpoch={drill?.decision_epoch ?? focusEpoch}
             onDecide={decide}

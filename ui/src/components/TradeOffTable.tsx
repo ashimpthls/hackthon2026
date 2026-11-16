@@ -7,8 +7,75 @@
  * time.
  */
 
-import type { DrillResult, PolicyKey, SimulationCandidate } from '../lib/types'
-import { formatSeconds } from '../lib/format'
+import type { DrillResult, PolicyKey, PolicyPlan, SimulationCandidate } from '../lib/types'
+import { formatRate, formatSeconds } from '../lib/format'
+
+/** The concrete per-type thresholds behind "Tighten the vector threshold". */
+function PolicyPlanTable({ plan }: { plan: PolicyPlan | null }) {
+  if (!plan) return null
+  if (!plan.available) {
+    return (
+      <div className="policy-plan">
+        <h3>Suggested policy change</h3>
+        <p className="empty">
+          No suggestion: {plan.reason}. The tighten option above uses its stated assumption.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="policy-plan">
+      <h3>Suggested policy change</h3>
+      <p className="panel-note">
+        Learned from the past {plan.history_days.toFixed(1)} days of this range's traffic
+        ({plan.excluded_incident_hours} incident hours excluded). The highlighted rows are
+        what "Tighten the vector threshold" changes.
+      </p>
+      <table className="tradeoff">
+        <thead>
+          <tr>
+            <th scope="col">Traffic type</th>
+            <th scope="col">Now vs normal</th>
+            <th scope="col">Current policy</th>
+            <th scope="col">Clean peak (7d, p99.9)</th>
+            <th scope="col">Suggested policy</th>
+            <th scope="col">Change</th>
+            <th scope="col">Last week it would have dropped</th>
+          </tr>
+        </thead>
+        <tbody>
+          {plan.per_type.map((row) => (
+            <tr key={row.traffic_type} className={row.apply ? 'is-selected' : undefined}>
+              <th scope="row">
+                {row.traffic_type}
+                {row.suspect && <span className="recommended-tag">suspect vector</span>}
+                {row.note && (
+                  <ul className="policy-notes">
+                    <li>{row.note}</li>
+                  </ul>
+                )}
+              </th>
+              <td className="mono">{row.ratio_to_normal_now.toFixed(1)}×</td>
+              <td className="mono">{formatRate(row.current_policy_pps)}</td>
+              <td className="mono">{formatRate(row.legit_envelope_pps)}</td>
+              <td className="mono">
+                {row.changes ? formatRate(row.suggested_policy_pps) : 'keep current'}
+              </td>
+              <td className="mono">
+                {row.changes ? `${(row.change_pct * 100).toFixed(0)}%` : '—'}
+              </td>
+              <td className="mono">
+                {row.changes
+                  ? `${row.backtest_legit_lost_pct.toFixed(3)}% of non-incident traffic · ${row.backtest_windows_blocked} windows`
+                  : '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 interface Props {
   drill: DrillResult | null
@@ -78,6 +145,8 @@ export function TradeOffTable({
               ))}
             </tbody>
           </table>
+
+          <PolicyPlanTable plan={drill.policy_plan} />
 
           <p className="disclaimer">{drill.disclaimer}</p>
           <button type="button" className="secondary" onClick={onRun} disabled={loading}>
