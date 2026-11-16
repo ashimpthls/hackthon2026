@@ -60,8 +60,9 @@ CANDIDATES: tuple[PolicyCandidate, ...] = (
         key="tighten_vector",
         name="Tighten the vector threshold",
         description=(
-            "Lower the start threshold on the suspect traffic type only. "
-            "Narrow and quick, but weak against a large flood."
+            "Lower the policy threshold on the suspect traffic type only, to "
+            "just above its legitimate peak over the past week. Narrow and "
+            "quick; it drops whatever exceeds the new line, attack or not."
         ),
         attack_suppression=0.55,
         legitimate_collateral=0.02,
@@ -353,34 +354,177 @@ def simulate(
     )
 
 
+def simulate_threshold_plan(
+    windows: Sequence[dict],
+    decision_epoch: int,
+    plan,
+    candidate: PolicyCandidate | None = None,
+    environment: str | None = None,
+) -> SimulationOutcome:
+    """Replay the incident with the plan's per-type policy thresholds.
+
+    `plan` is a `policy_advisor.PolicyPlan`. A lower policy line makes the wall
+    drop more of whatever exceeds it; it cannot tell attack packets from
+    legitimate ones, so the extra drop is shared in proportion to each in the
+    window. The legitimate part of a window is estimated from the same hour on
+    the past week (`plan.legit_reference`), not from the incident itself.
+
+    Figures are incremental to today's policy, like every other candidate:
+    "hold" is zero by definition.
+    """
+    candidate = candidate or CANDIDATES_BY_KEY["tighten_vector"]
+    thresholds = thresholds_for(environment)
+    engage_at = decision_epoch + candidate.engagement_delay_seconds
+    new_policy = plan.applied_thresholds
+
+    by_epoch: dict[int, list[dict]] = {}
+    for row in windows:
+        by_epoch.setdefault(int(row["window_start_epoch"]), []).append(row)
+    horizon = [epoch for epoch in sorted(by_epoch) if epoch >= decision_epoch]
+    if not horizon:
+        raise ValueError(f"no windows at or after decision epoch {decision_epoch}")
+
+    hold = _replay(by_epoch, horizon, engage_at, 0.0, 0.0, thresholds)
+    result = _Trajectory()
+    for epoch in horizon:
+        engaged = epoch >= engage_at
+        window_blocked = 0.0
+        window_total = 0.0
+        window_over = False
+        for row in by_epoch[epoch]:
+            traffic_type = str(row.get("traffic_type"))
+            total = float(row.get("total_pps", 0.0))
+            policy_now = float(row.get("policy_pps", 0.0))
+            reference = plan.legit_reference(traffic_type, epoch)
+            legit = min(total, reference) if reference is not None else total
+            attack = max(0.0, total - legit)
+            result.legit_total += legit
+            result.attack_total += attack
+
+            line = new_policy.get(traffic_type, policy_now) if engaged else policy_now
+            blocked_now = max(0.0, total - policy_now)
+            blocked_new = max(0.0, total - line)
+            extra = max(0.0, blocked_new - blocked_now)
+            attack_share = attack / total if total > 0 else 0.0
+            result.attack_removed += extra * attack_share
+            result.legit_lost += extra * (1.0 - attack_share)
+
+            window_blocked += blocked_new
+            window_total += total
+            # Over threshold, as Shared State would see it, only while today's
+            # policy is still in force. Once the new line engages, everything
+            # above it is dropped before it reaches the protected range.
+            if not engaged and (
+                policy_now > 0.0
+                and blocked_now >= policy_now * thresholds.start_threshold_ratio
+                and blocked_now >= thresholds.start_floor_kpps * 1_000.0
+            ):
+                window_over = True
+        share = window_blocked / window_total if window_total > 0 else 0.0
+        result.peak_blocked_share = max(result.peak_blocked_share, share)
+        result.epochs.append(epoch)
+        result.over.append(window_over)
+
+    contain = _time_to_contain(result, hold, decision_epoch, engage_at)
+    notes = [
+        f"Suggested from the past {plan.history_days:g} days of this range's traffic: "
+        f"{plan.describe_change()}."
+    ]
+    for suggestion in plan.per_type:
+        if suggestion.apply:
+            notes.append(
+                f"Over that week, the new {suggestion.traffic_type} line would have dropped "
+                f"{suggestion.backtest_legit_lost_pct:g}% of legitimate packets "
+                f"({suggestion.backtest_windows_blocked} windows)."
+            )
+    if not new_policy:
+        notes.append(
+            "No traffic type can be tightened without dropping last week's legitimate peaks."
+        )
+    if not hold.ever_over:
+        notes.append(
+            "Even with no intervention this never crosses the start threshold, "
+            "so there is nothing to contain — only collateral to avoid."
+        )
+    if result.attack_total <= 0.0:
+        notes.append(
+            "Traffic sits inside last week's normal range; no attack component is estimated."
+        )
+
+    return SimulationOutcome(
+        policy_key=candidate.key,
+        policy_name=candidate.name,
+        attack_packets_blocked_pct=round(
+            100.0 * result.attack_removed / result.attack_total if result.attack_total > 0 else 0.0,
+            2,
+        ),
+        legitimate_packets_lost_pct=round(
+            100.0 * result.legit_lost / result.legit_total if result.legit_total > 0 else 0.0, 2
+        ),
+        peak_blocked_share=round(result.peak_blocked_share, 4),
+        seconds_over_threshold=result.seconds_over,
+        time_to_contain_seconds=contain,
+        operational_cost=candidate.operational_cost,
+        blast_radius=candidate.blast_radius,
+        reversible_seconds=candidate.reversible_seconds,
+        engagement_delay_seconds=candidate.engagement_delay_seconds,
+        notes=notes,
+    )
+
+
 def run_drill(
     windows: Sequence[dict],
     decision_epoch: int,
     environment: str | None = None,
+    policy_plan=None,
 ) -> dict:
     """Simulate all four candidates and return a comparison table.
+
+    With an available `policy_plan` (see `policy_advisor.suggest_policy`), the
+    "tighten the vector threshold" row is simulated from concrete per-type
+    thresholds learned from the past week, instead of from the fixed
+    suppression/collateral assumption.
 
     The returned payload is explicitly marked as a simulation and carries its
     own assumptions, because it will be rendered next to real traffic data.
     """
-    outcomes = [
-        simulate(windows, decision_epoch, candidate, environment).to_dict()
-        for candidate in CANDIDATES
-    ]
+    use_plan = policy_plan is not None and getattr(policy_plan, "available", False)
+    outcomes = []
+    for candidate in CANDIDATES:
+        if use_plan and candidate.key == "tighten_vector":
+            outcome = simulate_threshold_plan(
+                windows, decision_epoch, policy_plan, candidate, environment
+            )
+        else:
+            outcome = simulate(windows, decision_epoch, candidate, environment)
+        outcomes.append(outcome.to_dict())
+
+    assumptions = []
+    for candidate in CANDIDATES:
+        entry = {
+            "policy_key": candidate.key,
+            "basis": "stated assumption",
+            "attack_suppression": candidate.attack_suppression,
+            "legitimate_collateral": candidate.legitimate_collateral,
+            "engagement_delay_seconds": candidate.engagement_delay_seconds,
+        }
+        if use_plan and candidate.key == "tighten_vector":
+            entry.update(
+                {
+                    "basis": "past-week thresholds",
+                    "attack_suppression": None,
+                    "legitimate_collateral": None,
+                }
+            )
+        assumptions.append(entry)
+
     return {
         "simulation_only": True,
         "decision_epoch": decision_epoch,
         "environment": thresholds_for(environment).environment,
         "candidates": outcomes,
-        "assumptions": [
-            {
-                "policy_key": candidate.key,
-                "attack_suppression": candidate.attack_suppression,
-                "legitimate_collateral": candidate.legitimate_collateral,
-                "engagement_delay_seconds": candidate.engagement_delay_seconds,
-            }
-            for candidate in CANDIDATES
-        ],
+        "assumptions": assumptions,
+        "policy_plan": policy_plan.to_dict() if policy_plan is not None else None,
         "disclaimer": (
             "Modelled outcomes on recorded traffic. No policy was applied, no "
             "traffic was blocked, and no customer configuration was changed."

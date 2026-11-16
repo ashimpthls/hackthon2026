@@ -15,8 +15,12 @@ anomaly_persistence   number of consecutive abnormal windows so far
 
 Label
 -----
-1 if blocking above the Shared State start thresholds *begins* in
-(t, t+120s], else 0.
+Per traffic-type row: 1 if Shared State declares an attack on the range in
+(t, t+120s] *and this traffic type is over its start threshold at that
+declaration*, else 0. The declaration itself is range-level; the label says
+which vectors carry it, so a quiet vector's row is never asked to predict an
+onset its own features cannot see. The serving layer combines the per-type
+scores into one range-level risk.
 
 Anti-leakage rules enforced here
 --------------------------------
@@ -24,9 +28,12 @@ Anti-leakage rules enforced here
   (`rowsBetween(..., 0)`) — no future-derived value can enter a feature;
 * the label is the only forward-looking column, and it is dropped from the
   feature vector;
-* baselines are computed from training scenarios only and broadcast-joined, so
-  a test scenario never contributes to its own baseline;
-* `scenario_id` is carried for splitting and is never a model input.
+* an episode's baseline comes only from the same hour of week in *earlier*
+  weeks (`compute_trailing_baselines`), so no episode — and no test week —
+  ever contributes to its own baseline. The first week is warm-up: it feeds
+  baselines and never reaches the feature table;
+* `scenario_id` and `week_index` are carried for splitting and are never model
+  inputs.
 """
 
 from __future__ import annotations
@@ -48,6 +55,7 @@ from pyspark.sql.types import (
 
 from ..config import (
     ANOMALY_DEVIATION_THRESHOLD,
+    BASELINE_LOOKBACK_WEEKS,
     FEATURE_VERSION,
     HORIZON_WINDOWS,
     PERSISTENCE_LOOKBACK_WINDOWS,
@@ -74,8 +82,13 @@ RAW_SCHEMA = StructType(
         StructField("country_hhi", DoubleType(), False),
         StructField("account_attack_history", IntegerType(), False),
         StructField("is_attack_vector", BooleanType(), False),
+        StructField("week_index", IntegerType(), False),
     ]
 )
+
+#: Join key between raw windows and their baselines. `week_index` is the week
+#: the baseline is *for*; it is built from strictly earlier weeks.
+BASELINE_KEYS: tuple[str, ...] = ("range_id", "traffic_type", "hour_of_week", "week_index")
 
 #: Exactly the columns handed to the forecaster. Keep this list authoritative —
 #: `scenario_id`, `scenario_type` and the label must never appear in it.
@@ -143,8 +156,9 @@ def with_time_keys(raw: DataFrame) -> DataFrame:
 def compute_baselines(raw_with_keys: DataFrame) -> DataFrame:
     """Median and MAD per (range_id, traffic_type, hour_of_week).
 
-    MAD is scaled by 1.4826 so that for normally distributed traffic the
-    resulting deviation reads like a z-score.
+    Aggregates whatever windows it is given; `compute_trailing_baselines`
+    decides which windows those are. MAD is scaled by 1.4826 so that for
+    normally distributed traffic the resulting deviation reads like a z-score.
 
     Only *quiet* windows feed the baseline: windows where blocking already
     exceeds the policy-relative start threshold describe an attack, not normal
@@ -157,6 +171,9 @@ def compute_baselines(raw_with_keys: DataFrame) -> DataFrame:
         F.expr("percentile_approx(total_pps, 0.5, 1000)").alias("median_pps"),
         F.expr("percentile_approx(total_mbps, 0.5, 1000)").alias("median_mbps"),
         F.count(F.lit(1)).alias("baseline_sample_count"),
+        # Provenance, so a test can prove which weeks fed each baseline.
+        F.min("week_index").alias("source_week_min"),
+        F.max("week_index").alias("source_week_max"),
     )
 
     deviations = (
@@ -185,16 +202,56 @@ def compute_baselines(raw_with_keys: DataFrame) -> DataFrame:
     )
 
 
+def compute_trailing_baselines(
+    raw_with_keys: DataFrame, lookback_weeks: int = BASELINE_LOOKBACK_WEEKS
+) -> DataFrame:
+    """Baselines for each week, from up to `lookback_weeks` *earlier* weeks.
+
+    This is how a production baseline works — it can only have seen the past —
+    and it is what stops an episode from being measured against itself. A
+    single-week logbook has exactly one episode per (range, hour of week), so
+    an all-data baseline would be that episode's own median, future included.
+
+    The returned `week_index` is the week the baseline is *for*. The earliest
+    week has no past and gets no baseline: it is warm-up.
+    """
+    weeks = sorted(
+        int(row["week_index"]) for row in raw_with_keys.select("week_index").distinct().collect()
+    )
+    if len(weeks) < 2:
+        raise ValueError(
+            f"need at least two weeks of windows to build past-only baselines; got weeks {weeks}. "
+            "Generate more days (`--days 28`)."
+        )
+    parts: list[DataFrame] = []
+    for week in weeks[1:]:
+        source = raw_with_keys.filter(
+            (F.col("week_index") < F.lit(week))
+            & (F.col("week_index") >= F.lit(week - lookback_weeks))
+        )
+        parts.append(compute_baselines(source).withColumn("week_index", F.lit(week).cast("int")))
+    result = parts[0]
+    for part in parts[1:]:
+        result = result.unionByName(part)
+    return result
+
+
 def build_features(
     raw: DataFrame,
     baselines: DataFrame,
     thresholds: SharedStateThresholds,
 ) -> DataFrame:
-    """Join baselines, compute every feature, then attach the 120s label."""
+    """Join baselines, compute every feature, then attach the 120s label.
+
+    Only weeks that have a past-only baseline are featurised; the warm-up week
+    is dropped here, before any window function runs.
+    """
     keyed = with_time_keys(raw)
+    covered_weeks = baselines.select("week_index").distinct()
+    keyed = keyed.join(F.broadcast(covered_weeks), on="week_index", how="inner")
     joined = keyed.join(
-        F.broadcast(baselines),
-        on=["range_id", "traffic_type", "hour_of_week"],
+        F.broadcast(baselines.drop("source_week_min")),
+        on=list(BASELINE_KEYS),
         how="left",
     )
 
@@ -336,14 +393,22 @@ def add_onset_label(feats: DataFrame, thresholds: SharedStateThresholds) -> Data
         "is_onset", ((F.col("declared") == 1) & (prev_declared == 0)).cast("int")
     )
 
-    # Forward-looking by design: 1 if an onset falls in (t, t+120s].
-    horizon = instant.rowsBetween(1, HORIZON_WINDOWS)
-    per_instant = per_instant.withColumn(
-        LABEL_COLUMN,
-        (F.coalesce(F.sum("is_onset").over(horizon), F.lit(0)) > 0).cast("int"),
-    )
-
     labelled = ranged.join(
         per_instant, on=["scenario_id", "range_id", "window_start_epoch"], how="left"
     )
-    return labelled.withColumn("feature_version", F.lit(FEATURE_VERSION))
+
+    # Forward-looking by design, per traffic type: 1 if the range declares in
+    # (t, t+120s] and *this* type is over threshold at that declaration. The
+    # frame holds one row per window per type, so `rowsBetween` counts windows.
+    carries_onset = ((F.col("is_onset") == 1) & (F.col("over_threshold") == 1)).cast("int")
+    per_type = Window.partitionBy("scenario_id", "range_id", "traffic_type").orderBy(
+        "window_start_epoch"
+    )
+    horizon = per_type.rowsBetween(1, HORIZON_WINDOWS)
+    labelled = labelled.withColumn("_carries_onset", carries_onset).withColumn(
+        LABEL_COLUMN,
+        (F.coalesce(F.sum("_carries_onset").over(horizon), F.lit(0)) > 0).cast("int"),
+    )
+    return labelled.drop("_carries_onset").withColumn(
+        "feature_version", F.lit(FEATURE_VERSION)
+    )

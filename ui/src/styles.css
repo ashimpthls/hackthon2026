@@ -914,3 +914,28 @@ input:disabled {
 .app-footer li {
   margin-bottom: 4px;
 }
+
+/* Suggested policy change (past-week thresholds) */
+.policy-plan {
+  margin-top: 16px;
+}
+
+.policy-plan h3 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.policy-plan .panel-note {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.proposed-change {
+  margin: 4px 0 12px;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+
+.proposed-change li {
+  margin-bottom: 4px;
+}

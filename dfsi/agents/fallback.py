@@ -81,8 +81,8 @@ def investigate(bundle: EvidenceBundle) -> dict:
         cite("blocked_share_delta_60s", "blocking is already increasing")
     if history >= 1:
         attack_signals += 1
-        reasons.append("this account has prior attack episodes")
-        cite("account_attack_history", "prior episodes on this account")
+        reasons.append("this account was attacked in the past few hours")
+        cite("account_attack_history", "recent attack episodes on this account")
     if growth_60 >= 1.0 and hhi <= 0.35:
         crowd_signals += 2
         counter.append("fast growth from a diverse source mix is the flash-crowd shape")
@@ -126,6 +126,7 @@ def advise(bundle: EvidenceBundle, reading: str | None = None) -> dict:
     """Lay out the four options; recommend based on simulated trade-offs."""
     simulation = (bundle.simulation or {}).get("candidates", [])
     by_key = {row["policy_key"]: row for row in simulation}
+    plan = (bundle.simulation or {}).get("policy_plan") or {}
 
     options: list[dict] = []
     for candidate in CANDIDATES:
@@ -138,6 +139,13 @@ def advise(bundle: EvidenceBundle, reading: str | None = None) -> dict:
                     f"removes {row['attack_packets_blocked_pct']}% of the attack traffic"
                     if row.get("attack_packets_blocked_pct") is not None
                     else candidate.description
+                )
+                + (
+                    f"; sets {plan['change']} (from the past {plan['history_days']:g} days)"
+                    if candidate.key == "tighten_vector"
+                    and plan.get("available")
+                    and plan.get("change") not in (None, "no change")
+                    else ""
                 ),
                 "what_it_costs": (
                     f"loses {row['legitimate_packets_lost_pct']}% of legitimate traffic"

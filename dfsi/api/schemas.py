@@ -66,6 +66,9 @@ class DecisionRecord(BaseModel):
     note: str
     model_version: str
     feature_version: str
+    #: For a threshold change: the concrete per-type thresholds the human
+    #: signed off on, and the past-week backtest behind them.
+    policy_change: dict[str, Any] | None = None
     applied: Literal[False] = False
     note_to_auditor: str = (
         "Simulated decision recorded for audit. DFSI is read-only; no policy "

@@ -131,6 +131,41 @@ export interface SimulationCandidate {
   notes: string[]
 }
 
+export interface PolicyTypeSuggestion {
+  traffic_type: string
+  current_policy_pps: number
+  current_policy_mbps: number
+  legit_median_pps: number
+  legit_envelope_pps: number
+  legit_max_pps: number
+  suggested_policy_pps: number
+  suggested_policy_mbps: number
+  change_pct: number
+  changes: boolean
+  ratio_to_normal_now: number
+  suspect: boolean
+  apply: boolean
+  backtest_windows_blocked: number
+  backtest_hours_affected: number
+  backtest_legit_lost_pct: number
+  note: string | null
+}
+
+/** Per-type thresholds learned from at least a week of this range's traffic. */
+export interface PolicyPlan {
+  available: boolean
+  range_id: number
+  reason: string | null
+  history_start_epoch: number | null
+  history_end_epoch: number | null
+  history_days: number
+  history_required_days: number
+  coverage: number
+  excluded_incident_hours: number
+  per_type: PolicyTypeSuggestion[]
+  change: string
+}
+
 export interface DrillResult {
   simulation_only: true
   replay_id: string
@@ -138,6 +173,7 @@ export interface DrillResult {
   decision_epoch: number
   environment: string
   candidates: SimulationCandidate[]
+  policy_plan: PolicyPlan | null
   disclaimer: string
 }
 
@@ -200,6 +236,17 @@ export interface DecisionRecord {
   note: string
   model_version: string
   feature_version: string
+  policy_change: {
+    basis: string
+    change: string | null
+    reason: string | null
+    per_type: {
+      traffic_type: string
+      current_policy_pps: number
+      suggested_policy_pps: number
+      backtest_legit_lost_pct: number
+    }[]
+  } | null
   applied: false
   note_to_auditor: string
 }

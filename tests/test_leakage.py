@@ -18,8 +18,10 @@ from conftest import requires_memory
 from dfsi.config import PATHS
 from dfsi.forecaster.train import (
     FORBIDDEN_INPUTS,
+    WEEK_COLUMN,
     assert_no_leakage,
     split_by_scenario,
+    split_by_time,
 )
 from dfsi.memory.features import FEATURE_COLUMNS, GROUP_COLUMN, LABEL_COLUMN
 
@@ -108,6 +110,40 @@ def test_split_is_reproducible():
     first, _ = split_by_scenario(frame, test_size=0.3, random_state=7)
     second, _ = split_by_scenario(frame, test_size=0.3, random_state=7)
     assert sorted(first[GROUP_COLUMN].unique()) == sorted(second[GROUP_COLUMN].unique())
+
+
+def weekly_frame(weeks=(1, 2, 3, 4), per_week: int = 6) -> pd.DataFrame:
+    frame = synthetic_frame(n_scenarios=len(weeks) * per_week)
+    scenario_week = {
+        f"scenario-{s:04d}": weeks[s // per_week] for s in range(len(weeks) * per_week)
+    }
+    frame[WEEK_COLUMN] = frame[GROUP_COLUMN].map(scenario_week)
+    return frame
+
+
+def test_time_split_tests_on_the_latest_week_only():
+    fit, calib, test = split_by_time(weekly_frame(), test_weeks=1, calibration_weeks=1)
+    assert set(test[WEEK_COLUMN]) == {4}
+    assert set(calib[WEEK_COLUMN]) == {3}
+    assert set(fit[WEEK_COLUMN]) == {1, 2}
+
+
+def test_time_split_never_trains_on_the_future():
+    fit, calib, test = split_by_time(weekly_frame(), test_weeks=1, calibration_weeks=1)
+    assert fit[WEEK_COLUMN].max() < calib[WEEK_COLUMN].min()
+    assert calib[WEEK_COLUMN].max() < test[WEEK_COLUMN].min()
+    groups = [set(part[GROUP_COLUMN]) for part in (fit, calib, test)]
+    assert not (groups[0] & groups[1] or groups[1] & groups[2] or groups[0] & groups[2])
+
+
+def test_time_split_refuses_too_few_weeks():
+    with pytest.raises(ValueError, match="needs 3 featurised weeks"):
+        split_by_time(weekly_frame(weeks=(1, 2)), test_weeks=1, calibration_weeks=1)
+
+
+def test_split_bookkeeping_is_forbidden_as_input():
+    for column in (WEEK_COLUMN, "source_week_max", "is_attack_vector"):
+        assert column in FORBIDDEN_INPUTS
 
 
 # -------------------------------------------------- the built feature table
@@ -201,3 +237,75 @@ def test_declared_requires_the_full_start_duration():
             assert window.sum() >= required, (
                 "declared without the full start duration over threshold"
             )
+
+
+# ------------------------------------------- past-only baselines and labels
+
+
+@requires_memory
+def test_every_baseline_is_built_from_earlier_weeks_only():
+    """The leak this replaced: one week of data meant each (range, hour of
+    week) had exactly one episode, so its baseline was the episode itself —
+    future windows included."""
+    from dfsi.config import BASELINE_LOOKBACK_WEEKS
+
+    baselines = pd.read_parquet(
+        PATHS.baselines, columns=["week_index", "source_week_min", "source_week_max"]
+    )
+    assert not baselines.empty
+    assert (baselines["source_week_max"] < baselines["week_index"]).all()
+    assert (
+        baselines["source_week_min"] >= baselines["week_index"] - BASELINE_LOOKBACK_WEEKS
+    ).all()
+
+
+@requires_memory
+def test_featurised_windows_never_see_their_own_week_in_the_baseline():
+    frame = pd.read_parquet(PATHS.features, columns=["week_index", "source_week_max"])
+    joined = frame.dropna(subset=["source_week_max"])
+    assert len(joined) > 0.99 * len(frame), "most windows should have a baseline"
+    assert (joined["source_week_max"] < joined["week_index"]).all()
+
+
+@requires_memory
+def test_the_warm_up_week_never_reaches_the_feature_table():
+    raw_weeks = set(pd.read_parquet(PATHS.raw_windows, columns=["week_index"])["week_index"])
+    feature_weeks = set(pd.read_parquet(PATHS.features, columns=["week_index"])["week_index"])
+    assert min(raw_weeks) not in feature_weeks
+    assert feature_weeks == raw_weeks - {min(raw_weeks)}
+
+
+@requires_memory
+def test_positive_labels_sit_on_a_vector_that_carries_the_onset():
+    """Per-type label: a quiet vector's row is never asked to predict an onset
+    its own features cannot see."""
+    columns = [GROUP_COLUMN, "traffic_type", "window_start_epoch", "is_onset", "over_threshold", LABEL_COLUMN]
+    frame = pd.read_parquet(PATHS.features, columns=columns)
+    carriers = frame[(frame["is_onset"] == 1) & (frame["over_threshold"] == 1)][
+        [GROUP_COLUMN, "traffic_type", "window_start_epoch"]
+    ].rename(columns={"window_start_epoch": "onset_epoch"})
+    positives = frame[frame[LABEL_COLUMN] == 1][[GROUP_COLUMN, "traffic_type", "window_start_epoch"]]
+    assert not positives.empty
+
+    paired = positives.merge(carriers, on=[GROUP_COLUMN, "traffic_type"], how="left")
+    paired["ahead"] = paired["onset_epoch"] - paired["window_start_epoch"]
+    paired["ok"] = (paired["ahead"] > 0) & (paired["ahead"] <= 120)
+    supported = paired.groupby([GROUP_COLUMN, "traffic_type", "window_start_epoch"])["ok"].any()
+    assert supported.all(), supported[~supported].head()
+
+
+@requires_memory
+def test_demo_replays_come_from_the_held_out_week():
+    """The demo must not show the model a scenario it was trained on."""
+    import json
+
+    from dfsi.config import TEST_WEEKS
+
+    feature_weeks = sorted(set(pd.read_parquet(PATHS.features, columns=["week_index"])["week_index"]))
+    test_weeks = set(feature_weeks[-TEST_WEEKS:])
+    catalogue = json.loads((PATHS.replay / "catalogue.json").read_text())
+    assert catalogue
+    for entry in catalogue:
+        replay = json.loads((PATHS.replay / f"{entry['replay_id']}.json").read_text())
+        day = int(replay["scenario_id"].split("-d")[1][:2])
+        assert day // 7 in test_weeks, entry["replay_id"]

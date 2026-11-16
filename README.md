@@ -55,16 +55,21 @@ waits for it to answer, then opens the UI. Every stage is skipped when its
 output already exists, so a second run serves in seconds, and one Ctrl-C stops
 both servers.
 
+Generated output is not committed: `.venv/`, `data/`, `models/`, `mlruns/`,
+`logs/`, `ui/node_modules/` and `ui/dist/` are in `.gitignore`. On a fresh
+checkout the first `scripts/run.sh` builds them (the Memory layer takes about a
+minute).
+
 ```bash
 scripts/run.sh
 ```
 
 ```bash
 scripts/run.sh --rebuild        # force Memory + training again
-scripts/run.sh --test           # run the 68 tests before serving
+scripts/run.sh --test           # run the 91 tests before serving
 scripts/run.sh --no-ui          # API only
 scripts/run.sh --build-only     # build, don't serve
-scripts/run.sh --days 2         # smaller logbook, much faster
+scripts/run.sh --days 28        # weeks of history (default 28: warm-up, fit, calibration, test)
 ```
 
 `DFSI_PORT` and `DFSI_UI_PORT` move the two servers off 8000/5173; the UI's
@@ -75,7 +80,7 @@ scripts/run.sh --days 2         # smaller logbook, much faster
 Four stages, in order. The first two are build steps; the last two are the demo.
 
 ```bash
-scripts/build_memory.sh          # Memory: PySpark → features + replays (~2-4 min)
+scripts/build_memory.sh          # Memory: PySpark → features + replays (~1 min)
 scripts/train.sh                 # Forecaster: train, calibrate, register in MLflow
 scripts/serve_api.sh             # API on http://127.0.0.1:8000  (docs at /docs)
 cd ui && npm run dev             # Dashboard on http://127.0.0.1:5173
@@ -87,10 +92,10 @@ dependencies are already in place, where `scripts/run.sh` builds them.
 Useful variations:
 
 ```bash
-scripts/build_memory.sh --days 2                 # a smaller logbook, much faster
+scripts/build_memory.sh --days 14                # smaller: then train with `scripts/train.sh --split scenario`
 scripts/build_memory.sh --env prod               # 300s start duration instead of 30s
 scripts/train.sh --false-alarm-budget 0.05       # trade false alarms for lead time
-.venv/bin/python -m pytest -q                    # 68 tests
+.venv/bin/python -m pytest -q                    # 91 tests
 .venv/bin/python -m mlflow ui --backend-store-uri mlruns   # browse tracked runs
 ```
 
@@ -262,6 +267,6 @@ dfsi/
 ui/                    React + Vite + TypeScript dashboard
 scripts/               run.sh (build + run, one command) · env.sh · build_memory.sh
                        train.sh · serve_api.sh · demo.sh
-tests/                 68 tests: simulator · validator · metrics · leakage
+tests/                 91 tests: simulator · validator · metrics · leakage · scenarios
 data/ models/ mlruns/  generated — safe to delete and rebuild
 ```

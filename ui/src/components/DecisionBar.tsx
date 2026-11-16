@@ -7,12 +7,43 @@
  */
 
 import { useState } from 'react'
-import type { DecisionRecord, PolicyKey } from '../lib/types'
-import { POLICY_LABELS } from '../lib/format'
+import type { DecisionRecord, PolicyKey, PolicyPlan } from '../lib/types'
+import { POLICY_LABELS, formatRate } from '../lib/format'
+
+/** What approving "tighten" would actually change, in numbers. */
+function ProposedChange({ plan }: { plan: PolicyPlan | null }) {
+  if (!plan) {
+    return <p className="panel-note">Run the drill to see the concrete thresholds.</p>
+  }
+  if (!plan.available) {
+    return <p className="panel-note">No threshold suggestion: {plan.reason}.</p>
+  }
+  const applied = plan.per_type.filter((row) => row.apply)
+  if (applied.length === 0) {
+    return (
+      <p className="panel-note">
+        No traffic type can be tightened without dropping last week's legitimate peaks.
+      </p>
+    )
+  }
+  return (
+    <ul className="proposed-change">
+      {applied.map((row) => (
+        <li key={row.traffic_type} className="mono">
+          {row.traffic_type}: policy {formatRate(row.current_policy_pps)} →{' '}
+          <strong>{formatRate(row.suggested_policy_pps)}</strong> (
+          {(row.change_pct * 100).toFixed(0)}%) · last {plan.history_days.toFixed(0)} days it
+          would have dropped {row.backtest_legit_lost_pct.toFixed(3)}% of legitimate packets
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 interface Props {
   selected: PolicyKey | null
   recommended: PolicyKey | null
+  policyPlan: PolicyPlan | null
   modelVersion: string
   decisionEpoch: number | null
   onDecide: (verdict: 'approved' | 'rejected' | 'changed', note: string) => Promise<void>
@@ -24,6 +55,7 @@ interface Props {
 export function DecisionBar({
   selected,
   recommended,
+  policyPlan,
   modelVersion,
   decisionEpoch,
   onDecide,
@@ -66,6 +98,7 @@ export function DecisionBar({
             <>Pick a response in the rehearsal room to record a decision.</>
           )}
         </p>
+        {selected === 'tighten_vector' && <ProposedChange plan={policyPlan} />}
 
         <label className="decision-note">
           Note for the record
@@ -108,7 +141,8 @@ export function DecisionBar({
 
       {lastDecision && (
         <p className="decision-receipt">
-          Recorded: <strong>{lastDecision.verdict}</strong> — {lastDecision.policy_name}.{' '}
+          Recorded: <strong>{lastDecision.verdict}</strong> — {lastDecision.policy_name}
+          {lastDecision.policy_change?.change ? ` (${lastDecision.policy_change.change})` : ''}.{' '}
           {lastDecision.note_to_auditor}
         </p>
       )}

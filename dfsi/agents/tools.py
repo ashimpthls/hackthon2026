@@ -69,6 +69,12 @@ class EvidenceBundle:
             for candidate in self.simulation.get("candidates", []):
                 for value in candidate.values():
                     add(value)
+            plan = self.simulation.get("policy_plan") or {}
+            add(plan.get("history_days"))
+            add(plan.get("history_required_days"))
+            for suggestion in plan.get("per_type", []) or []:
+                for value in suggestion.values():
+                    add(value)
         return values
 
 

@@ -24,6 +24,8 @@ export const SCENARIO_LABELS: Record<string, string> = {
   gradual_buildup: 'Gradual build-up',
   sustained_attack: 'Sustained attack',
   recovery: 'Recovery',
+  pulse_wave: 'Pulse wave',
+  carpet_bomb: 'Carpet bombing',
 }
 
 export const POLICY_LABELS: Record<PolicyKey, string> = {
