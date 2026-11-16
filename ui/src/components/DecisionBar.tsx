@@ -47,6 +47,9 @@ interface Props {
   modelVersion: string
   decisionEpoch: number | null
   onDecide: (verdict: 'approved' | 'rejected' | 'changed', note: string) => Promise<void>
+  /** Run the attack again, now under the policy just approved. */
+  onReplay: () => void
+  canReplay: boolean
   lastDecision: DecisionRecord | null
   busy: boolean
   error: string | null
@@ -59,6 +62,8 @@ export function DecisionBar({
   modelVersion,
   decisionEpoch,
   onDecide,
+  onReplay,
+  canReplay,
   lastDecision,
   busy,
   error,
@@ -80,7 +85,9 @@ export function DecisionBar({
     <section className="panel decision-panel">
       <header className="panel-head">
         <h2>Human decision</h2>
-        <span className="panel-note">recorded for audit · never applied</span>
+        <span className="panel-note">
+          audited · approved threshold changes go to the simulated policy store
+        </span>
       </header>
 
       <div className="decision-body">
@@ -140,11 +147,19 @@ export function DecisionBar({
       {error && <p className="error">{error}</p>}
 
       {lastDecision && (
-        <p className="decision-receipt">
-          Recorded: <strong>{lastDecision.verdict}</strong> — {lastDecision.policy_name}
-          {lastDecision.policy_change?.change ? ` (${lastDecision.policy_change.change})` : ''}.{' '}
-          {lastDecision.note_to_auditor}
-        </p>
+        <div className="decision-receipt">
+          <p>
+            {lastDecision.applied ? 'Applied' : 'Recorded'}: <strong>{lastDecision.verdict}</strong>{' '}
+            — {lastDecision.policy_name}
+            {lastDecision.policy_change?.change ? ` (${lastDecision.policy_change.change})` : ''}.{' '}
+            {lastDecision.note_to_auditor}
+          </p>
+          {lastDecision.applied && (
+            <button type="button" className="primary" onClick={onReplay} disabled={!canReplay}>
+              Replay this attack under policy v{lastDecision.policy_version_after}
+            </button>
+          )}
+        </div>
       )}
     </section>
   )

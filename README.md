@@ -99,6 +99,35 @@ scripts/train.sh --false-alarm-budget 0.05       # trade false alarms for lead t
 .venv/bin/python -m mlflow ui --backend-store-uri mlruns   # browse tracked runs
 ```
 
+### Approving a policy change, then replaying the attack
+
+`raw.json` is the policy database: per account, range and traffic type, the
+configured line (`max_threshold_pps` / `max_threshold_mbps`). The API loads it
+into an in-memory, versioned policy store, and every replay is re-derived under
+the store's current lines. That covers what the wall blocks, the policy-based
+features the forecaster reads, and when Shared State's bell rings.
+
+1. Replay an attack, run the drill, and pick **Tighten the vector threshold**.
+   The suggestion comes from the past week of that range's traffic.
+2. **Approve** it. The suggested lines are written to the store (a new version,
+   with history), and the audit record says `applied: true`.
+3. **Replay the same attack.** It now runs under the new lines. The *Policy
+   store* panel compares the two runs: when DFSI warned, when the bell rang, how
+   much was dropped at the wall, and the peak still reaching the range.
+
+Only threshold changes are applied, and only to this simulated store. Nothing
+reaches Behemoth, Shared State or a customer's configuration. Restarting the
+API, or **Reset to raw.json** (`POST /api/policies/reset`), restores the seed.
+`GET /api/policies` shows the store and its history. `DFSI_POLICY_DB` points
+the store at a different file.
+
+Each range can also set its own `risk_threshold`: the risk score at or above
+which a window counts towards a DFSI warning on that range. A range without one
+uses the model's calibrated threshold. It moves the dashed line on the timeline,
+the risk bands, the warning, and so the head start. It is read when the API
+starts, so edit `raw.json` and restart to change it. `GET /api/risk-thresholds`
+shows what is in effect.
+
 ### The agents
 
 Set `ANTHROPIC_API_KEY` before starting the API to run the two explainers on

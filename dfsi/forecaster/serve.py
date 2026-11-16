@@ -117,6 +117,9 @@ class Forecast:
     #: still reported, honestly, and `gate_reason` says why nothing fired.
     gated: bool = False
     gate_reason: str | None = None
+    #: The decision threshold this forecast's band and state were judged
+    #: against: the range's own, if one is set, otherwise the model's.
+    decision_threshold: float | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -135,6 +138,7 @@ class Forecast:
             "degraded_reason": self.degraded_reason,
             "gated": self.gated,
             "gate_reason": self.gate_reason,
+            "decision_threshold": self.decision_threshold,
         }
 
 
@@ -217,12 +221,16 @@ class ForecasterService:
         return self._model is not None
 
     # ------------------------------------------------------------------ #
-    def score_window(self, windows: list[dict]) -> Forecast:
+    def score_window(self, windows: list[dict], threshold: float | None = None) -> Forecast:
         """Score one instant for one range.
 
         `windows` holds the per-traffic-type rows for a single
         (range_id, window_start_epoch). The range-level risk is the maximum
         across its traffic types: one vector is enough to ring the bell.
+
+        `threshold` overrides the model's decision threshold for this range.
+        The score itself never depends on it, only the band and the state the
+        score is read as. `None` uses the model's calibrated threshold.
         """
         if not windows:
             raise ValueError("score_window requires at least one traffic-type row")
@@ -232,30 +240,41 @@ class ForecasterService:
         range_id = int(head["range_id"])
         account_id = int(head.get("account_id", -1))
 
+        if threshold is None:
+            threshold, bands = self.decision_threshold, self.bands
+        else:
+            threshold = float(threshold)
+            bands = RiskBands.for_threshold(threshold)
+
         if not self.ready:
-            return self._degraded(epoch, range_id, account_id, self.load_error or "model not loaded")
+            return self._degraded(
+                epoch, range_id, account_id, self.load_error or "model not loaded", threshold
+            )
 
         try:
             frame = pd.DataFrame(windows)
             missing = [c for c in self._features if c not in frame.columns]
             if missing:
                 return self._degraded(
-                    epoch, range_id, account_id, f"missing features {missing}"
+                    epoch, range_id, account_id, f"missing features {missing}", threshold
                 )
             scores = self._model.predict_proba(frame[self._features])[:, 1]
             best = int(scores.argmax())
             score = float(scores[best])
         except Exception as exc:
             log.exception("scoring failed for range %s", range_id)
-            return self._degraded(epoch, range_id, account_id, f"scoring error: {exc}")
+            return self._degraded(
+                epoch, range_id, account_id, f"scoring error: {exc}", threshold
+            )
 
         # A score above threshold raises an alert only with traffic evidence behind
         # it. The score itself is untouched; a gated window reads as `watch`, so
-        # "warn or above" still means exactly "an alert is raised".
-        above = score >= self.decision_threshold
+        # "warn or above" still means exactly "an alert is raised". "Above" is
+        # against the range's threshold, the same one its bands are built from.
+        above = score >= threshold
         deviation = self._deviation(windows)
         gated = above and not has_traffic_evidence(deviation, self.evidence_gate_deviation)
-        band = "watch" if gated else self.bands.band(score)
+        band = "watch" if gated else bands.band(score)
         evidence = self.build_evidence(windows[best], score)
         return Forecast(
             window_start_epoch=epoch,
@@ -271,14 +290,15 @@ class ForecasterService:
             # Only a window that actually raises an alert has anything to calm:
             # a gated one (score above threshold, no traffic evidence) has no
             # alert to explain away, and the quiet majority skips the extra
-            # model calls.
+            # model calls. "Calm" means below the range's threshold.
             counterfactual=(
-                self._counterfactual(windows[best], score, evidence)
+                self._counterfactual(windows[best], score, evidence, threshold)
                 if above and not gated
                 else None
             ),
             gated=gated,
-            gate_reason=self._gate_reason(score, deviation) if gated else None,
+            gate_reason=self._gate_reason(score, deviation, threshold) if gated else None,
+            decision_threshold=threshold,
         )
 
     @staticmethod
@@ -291,16 +311,23 @@ class ForecasterService:
                 values.append(float(value))
         return max(values) if values else None
 
-    def _gate_reason(self, score: float, deviation: float | None) -> str:
+    def _gate_reason(self, score: float, deviation: float | None, threshold: float) -> str:
         return (
-            f"The risk score ({score:.2f}) is above the {self.decision_threshold:.2f} "
+            f"The risk score ({score:.2f}) is above the {threshold:.2f} "
             f"threshold, but traffic is within its normal range for this hour "
             f"(strongest deviation {deviation:.1f}; an alert needs more than "
             f"{self.evidence_gate_deviation:.1f}). The score is being driven by context "
             "such as recent attack history, so no alert is raised. This is not an all-clear."
         )
 
-    def _degraded(self, epoch: int, range_id: int, account_id: int, reason: str) -> Forecast:
+    def _degraded(
+        self,
+        epoch: int,
+        range_id: int,
+        account_id: int,
+        reason: str,
+        threshold: float | None = None,
+    ) -> Forecast:
         """Fail safe: monitoring-only, no risk number, never 'low risk'."""
         return Forecast(
             window_start_epoch=epoch,
@@ -315,10 +342,16 @@ class ForecasterService:
             evidence=[],
             degraded=True,
             degraded_reason=reason,
+            decision_threshold=threshold if threshold is not None else self.decision_threshold,
         )
 
-    def _counterfactual(self, row: dict, score: float, evidence: list[dict]) -> dict | None:
+    def _counterfactual(
+        self, row: dict, score: float, evidence: list[dict], threshold: float | None = None
+    ) -> dict | None:
         """How far the drivers of this alert would have to come back for it to stop.
+
+        "Stop" means falling below `threshold`: the range's own decision
+        threshold, or the model's when `None`.
 
         The drivers are the evidence items pushing the score up, strongest first.
         Needs the quiet reference, so models saved without one return `None`.
@@ -346,7 +379,7 @@ class ForecasterService:
                 self._reference,
                 drivers,
                 EVIDENCE_LABELS,
-                self.decision_threshold,
+                self.decision_threshold if threshold is None else threshold,
                 score,
             )
         except Exception:

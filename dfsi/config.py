@@ -157,6 +157,11 @@ class Paths:
         return self.home / "models"
 
     @property
+    def policy_db(self) -> Path:
+        """Seed for the simulated policy store (per range and traffic type)."""
+        return Path(os.getenv("DFSI_POLICY_DB", self.home / "raw.json"))
+
+    @property
     def mlruns(self) -> Path:
         return self.home / "mlruns"
 

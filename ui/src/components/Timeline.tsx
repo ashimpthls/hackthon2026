@@ -13,6 +13,7 @@ import { BAND_COLOURS, formatClock, formatRate, formatSeconds } from '../lib/for
 
 interface Props {
   windows: WindowEvent[]
+  /** The selected range's decision threshold: its raw.json `risk_threshold`, or the model's. */
   threshold: number
   onScrub?: (epoch: number) => void
   selectedEpoch: number | null
@@ -102,7 +103,7 @@ export function Timeline({ windows, threshold, onScrub, selectedEpoch }: Props) 
       </header>
 
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="timeline">
-        {/* Decision threshold the model is held to. */}
+        {/* Decision threshold this range is read against. */}
         <line
           x1={PAD.left}
           x2={WIDTH - PAD.right}

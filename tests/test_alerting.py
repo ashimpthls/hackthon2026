@@ -85,13 +85,14 @@ class ScriptedForecaster:
 
     def __init__(self, scores, min_consecutive: int = 2, threshold: float = THRESHOLD):
         self.min_consecutive = min_consecutive
-        self._threshold = threshold
+        self.decision_threshold = threshold
         self.bands = RiskBands.for_threshold(threshold)
         self._by_epoch = {EPOCH + i * 10: score for i, score in enumerate(scores)}
 
-    def score_window(self, rows: list[dict]) -> Forecast:
+    def score_window(self, rows: list[dict], threshold: float | None = None) -> Forecast:
         epoch = int(rows[0]["window_start_epoch"])
         score = self._by_epoch[epoch]
+        threshold = self.decision_threshold if threshold is None else threshold
         common = dict(
             window_start_epoch=epoch,
             range_id=RANGE_ID,
@@ -99,6 +100,7 @@ class ScriptedForecaster:
             horizon_seconds=120,
             model_version="test/v1",
             feature_version="features-test",
+            decision_threshold=threshold,
         )
         if score is None:
             return Forecast(
@@ -112,7 +114,7 @@ class ScriptedForecaster:
         return Forecast(
             risk_score=score,
             risk_band="warn",
-            predicted_state=STATE_ABOUT_TO_START if score >= self._threshold else "QUIET",
+            predicted_state=STATE_ABOUT_TO_START if score >= threshold else "QUIET",
             **common,
         )
 

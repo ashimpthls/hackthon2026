@@ -20,7 +20,7 @@ from typing import Iterator
 from ..config import PATHS, STATE_ABOUT_TO_START, STATE_MONITORING_ONLY
 from ..forecaster.alerting import AlertTracker
 from ..forecaster.lifecycle import AlertLifecycle, LifecyclePolicy
-from ..forecaster.serve import ForecasterService
+from ..forecaster.serve import ForecasterService, RiskBands
 
 log = logging.getLogger("dfsi.api.replay")
 
@@ -115,14 +115,20 @@ def build_state(replay: dict) -> ReplayState:
     )
 
 
-def step(state: ReplayState, forecaster: ForecasterService) -> dict:
-    """Advance the replay by one 10-second window and return the event."""
+def step(
+    state: ReplayState, forecaster: ForecasterService, threshold: float | None = None
+) -> dict:
+    """Advance the replay by one 10-second window and return the event.
+
+    `threshold` is the range's decision threshold from raw.json (`None`: the
+    model's).
+    """
     if state.finished:
         raise StopIteration
     epoch, rows = state.instants[state.cursor]
     state.cursor += 1
 
-    forecast = forecaster.score_window(rows)
+    forecast = forecaster.score_window(rows, threshold)
     state.history.append(rows)
 
     # A single window above threshold is not a warning: it takes
@@ -138,9 +144,12 @@ def step(state: ReplayState, forecaster: ForecasterService) -> dict:
     # window `first_warning_epoch` below records. It scores the risk itself, not
     # the verdict: escalation and hysteresis need the number, and `None` marks a
     # window that could not be scored.
+    # Its warn and critical levels come from the range's threshold, so the
+    # lifecycle and `warned` raise on the same window.
     if state.lifecycle is None:
+        bands = forecaster.bands if threshold is None else RiskBands.for_threshold(threshold)
         state.lifecycle = AlertLifecycle(
-            forecaster.bands, LifecyclePolicy(raise_after=forecaster.min_consecutive)
+            bands, LifecyclePolicy(raise_after=forecaster.min_consecutive)
         )
     # A window the evidence gate withheld has a high score but no traffic behind
     # it: it must not raise the alert that the per-window state has just declined.
@@ -231,6 +240,45 @@ def _aggregate(rows: list[dict]) -> dict:
     }
 
 
+def run_stats(state: ReplayState) -> dict:
+    """What the wall and the bell did over the windows streamed so far.
+
+    Lets two runs of the same attack under different policies be compared:
+    how much was dropped at the wall, the most that still reached the range,
+    and when (relative to the episode's start) the bell rang. The wall and
+    bell figures cover the whole episode — the stream stops shortly after the
+    bell, and a run whose bell rings earlier would otherwise cover less of the
+    attack. The warning is DFSI's, so it is as far as the stream got.
+    """
+    if not state.instants:
+        return {}
+    start = state.instants[0][0]
+    window = state.instants[1][0] - start if len(state.instants) > 1 else 10
+    total = blocked = 0.0
+    peak_passed = 0.0
+    declared_windows = 0
+    first_declared: int | None = None
+    for epoch, rows in state.instants:
+        window_total = sum(float(r.get("total_pps", 0.0)) for r in rows)
+        window_blocked = sum(float(r.get("blocked_pps", 0.0)) for r in rows)
+        total += window_total
+        blocked += window_blocked
+        peak_passed = max(peak_passed, window_total - window_blocked)
+        if any(int(r.get("declared", 0)) for r in rows):
+            declared_windows += 1
+            if first_declared is None:
+                first_declared = epoch
+    return {
+        "blocked_share_total": round(blocked / total, 4) if total else 0.0,
+        "peak_passed_pps": round(peak_passed, 1),
+        "seconds_declared": declared_windows * window,
+        "bell_after_seconds": (first_declared - start) if first_declared is not None else None,
+        "warning_after_seconds": (
+            state.first_warning_epoch - start if state.first_warning_epoch is not None else None
+        ),
+    }
+
+
 def flat_history(state: ReplayState) -> list[dict]:
     """The lookback window, flattened, for the evidence bundle."""
     rows: list[dict] = []
@@ -240,9 +288,9 @@ def flat_history(state: ReplayState) -> list[dict]:
 
 
 def iter_replay(
-    replay_id: str, forecaster: ForecasterService
+    replay_id: str, forecaster: ForecasterService, threshold: float | None = None
 ) -> Iterator[tuple[ReplayState, dict]]:
     """Walk an entire replay, yielding the state and each event."""
     state = build_state(load_replay(replay_id))
     while not state.finished:
-        yield state, step(state, forecaster)
+        yield state, step(state, forecaster, threshold)

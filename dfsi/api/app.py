@@ -38,8 +38,10 @@ from ..config import (
     thresholds_for,
 )
 from ..forecaster.alerting import AlertTracker
+from ..forecaster.range_thresholds import load_range_thresholds
 from ..forecaster.serve import ForecasterService
 from ..rehearsal.policy_advisor import PolicyPlan, suggest_policy
+from ..rehearsal.policy_store import PolicyStore, apply_policy
 from ..rehearsal.simulator import CANDIDATES_BY_KEY, run_drill
 from ..rehearsal.uncertainty import assumption_uncertainty
 from ..rehearsal.waiting import cost_of_waiting
@@ -81,6 +83,9 @@ KNOWN_LIMITATIONS = [
     "assumptions, not measurements of Behemoth's actual behaviour.",
     "Source information is country-mix concentration only; an attack that is "
     "evenly distributed across many countries loses that signal.",
+    "Approved threshold changes apply to DFSI's simulated, in-memory policy "
+    "store (seeded from raw.json), not to Behemoth or any customer "
+    "configuration. Restarting the API, or resetting the store, restores the seed.",
 ]
 
 app = FastAPI(
@@ -110,6 +115,62 @@ app.add_middleware(
 
 _forecaster = ForecasterService()
 _orchestrator = ExplainerOrchestrator()
+_policy_store = PolicyStore.from_file(PATHS.policy_db)
+#: Per-range `risk_threshold` from raw.json; ranges not listed follow the model.
+_range_thresholds = load_range_thresholds(PATHS.policy_db)
+
+
+def _threshold_for(range_id: int) -> float:
+    """The decision threshold a range is read against."""
+    return _range_thresholds.get(int(range_id), _forecaster.decision_threshold)
+
+
+def _load_replay(replay_id: str) -> dict:
+    """A stored replay, re-derived under the policy currently in the store.
+
+    Every endpoint goes through this, so the stream, the drill, the agents and
+    the decision all see the same policy. Raises KeyError for unknown ids.
+    """
+    replay = replay_engine.load_replay(replay_id)
+    range_id = int(replay["range_id"])
+    policy = _policy_store.range_policy(range_id)
+    replay = dict(replay)
+    replay["windows"] = apply_policy(replay["windows"], policy)
+    replay["policy_version"] = _policy_store.range_version(range_id)
+    replay["policy"] = (
+        {t: {"max_threshold_pps": p.pps, "max_threshold_mbps": round(p.mbps, 3)} for t, p in sorted(policy.items())}
+        if policy
+        else None
+    )
+    return replay
+
+
+# --------------------------------------------------------------------------- #
+# Policy store (simulated)
+# --------------------------------------------------------------------------- #
+@app.get("/api/policies")
+def list_policies() -> dict:
+    """The simulated policy store: current lines per range and type, and history."""
+    return _policy_store.snapshot()
+
+
+@app.post("/api/policies/reset")
+def reset_policies() -> dict:
+    """Restore the store to its seed (raw.json)."""
+    _policy_store.reset()
+    return _policy_store.snapshot()
+
+
+# --------------------------------------------------------------------------- #
+# Per-range decision thresholds
+# --------------------------------------------------------------------------- #
+@app.get("/api/risk-thresholds")
+def list_risk_thresholds() -> dict:
+    """The model's decision threshold, and each range's `risk_threshold` from raw.json."""
+    return {
+        "model_default": _forecaster.decision_threshold,
+        "ranges": {str(k): v for k, v in sorted(_range_thresholds.items())},
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -191,9 +252,12 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
     time DFSI achieved against the threshold alarm.
     """
     try:
-        state = replay_engine.build_state(replay_engine.load_replay(request.replay_id))
+        replay = _load_replay(request.replay_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown replay {request.replay_id!r}")
+    state = replay_engine.build_state(replay)
+    policy_version = replay["policy_version"]
+    policy = replay["policy"]
 
     async def events():
         yield _sse(
@@ -207,12 +271,17 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
                 "model_version": _forecaster.model_version,
                 "feature_version": _forecaster.feature_version,
                 "forecaster_ready": _forecaster.ready,
+                "policy_version": policy_version,
+                "policy": policy,
+                "decision_threshold": _threshold_for(state.range_id),
             }
         )
         windows_after_bell = 0
         try:
             while not state.finished:
-                event = await asyncio.to_thread(replay_engine.step, state, _forecaster)
+                event = await asyncio.to_thread(
+                    replay_engine.step, state, _forecaster, _threshold_for(state.range_id)
+                )
                 yield _sse(event)
 
                 if state.bell_epoch is not None:
@@ -247,6 +316,9 @@ async def stream_replay(request: ReplayRequest) -> StreamingResponse:
                     else None
                 ),
                 "windows_streamed": state.cursor,
+                "policy_version": policy_version,
+                "policy": policy,
+                **replay_engine.run_stats(state),
                 # One entry per incident, not per flicker: when each alert
                 # opened and closed, how high it peaked, whether it escalated.
                 "alerts": replay_engine.alert_summary(state),
@@ -336,7 +408,7 @@ def _build_bundle(
             status_code=400, detail=f"epoch {decision_epoch} is not a window boundary"
         )
 
-    forecast = _forecaster.score_window(current)
+    forecast = _forecaster.score_window(current, _threshold_for(int(replay["range_id"])))
     lookback_epochs = sorted({int(r["window_start_epoch"]) for r in rows})[
         -replay_engine.EVIDENCE_LOOKBACK :
     ]
@@ -371,19 +443,24 @@ def _build_bundle(
 # --------------------------------------------------------------------------- #
 @app.post("/api/decision", response_model=DecisionRecord)
 def record_decision(request: DecisionRequest) -> DecisionRecord:
-    """Append a simulated decision to the audit log.
+    """Record a human decision, and apply an approved threshold change.
 
-    This endpoint deliberately has no side effect on any DDoS policy. It exists
-    so the demo can show the approval step and so every forecast a human acted
-    on is traceable to a model version.
+    Approving "tighten the vector threshold" writes the suggested per-type
+    lines into DFSI's simulated policy store, so the next run of any replay on
+    that range is played under them. Every other decision is recorded only.
+    Nothing reaches Behemoth, Shared State or a customer's configuration.
+    Every record is traceable to the model version and the policy version.
     """
     try:
-        replay = replay_engine.load_replay(request.replay_id)
+        replay = _load_replay(request.replay_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown replay {request.replay_id!r}")
 
     candidate = CANDIDATES_BY_KEY[request.policy_key]
     policy_change = None
+    applied = False
+    policy_version_before = replay["policy_version"]
+    policy_version_after = policy_version_before
     if candidate.key == "tighten_vector":
         # Recomputed here rather than trusted from the client, so the audit
         # record states exactly which thresholds the human signed off on.
@@ -403,6 +480,32 @@ def record_decision(request: DecisionRequest) -> DecisionRecord:
                 if s.apply
             ],
         }
+        new_lines = plan.applied_thresholds if plan.available else {}
+        if request.verdict in ("approved", "changed") and new_lines:
+            policy_version_after = _policy_store.apply_change(
+                int(replay["range_id"]),
+                new_lines,
+                provenance={
+                    "replay_id": request.replay_id,
+                    "decision_epoch": request.decision_epoch,
+                    "operator": request.operator,
+                    "verdict": request.verdict,
+                    "basis": "past-week thresholds",
+                },
+            )
+            applied = True
+
+    if applied:
+        note_to_auditor = (
+            f"Applied to DFSI's simulated policy store (version {policy_version_after}). "
+            "Replays on this range now run under the new lines. No real policy, "
+            "Behemoth rule or customer configuration was changed."
+        )
+    else:
+        note_to_auditor = (
+            "Decision recorded for audit. Only an approved threshold change is "
+            "applied, and only to DFSI's simulated policy store; nothing changed."
+        )
     record = DecisionRecord(
         recorded_at_epoch=int(time.time()),
         replay_id=request.replay_id,
@@ -415,6 +518,10 @@ def record_decision(request: DecisionRequest) -> DecisionRecord:
         model_version=request.model_version,
         feature_version=_forecaster.feature_version,
         policy_change=policy_change,
+        applied=applied,
+        policy_version_before=policy_version_before,
+        policy_version_after=policy_version_after,
+        note_to_auditor=note_to_auditor,
     )
 
     PATHS.decisions.mkdir(parents=True, exist_ok=True)
@@ -462,7 +569,7 @@ def _replay_and_decision_epoch(
     back to the last window keeps the endpoint usable on quiet scenarios.
     """
     try:
-        replay = replay_engine.load_replay(replay_id)
+        replay = _load_replay(replay_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown replay {replay_id!r}")
 
@@ -481,8 +588,9 @@ def _replay_and_decision_epoch(
     # The same debounce the stream applies, so "the first window DFSI warned
     # about" is the window the dashboard actually raised the warning at.
     tracker = AlertTracker(_forecaster.min_consecutive)
+    threshold = _threshold_for(int(replay["range_id"]))
     for epoch in epochs:
-        forecast = _forecaster.score_window(buckets[epoch])
+        forecast = _forecaster.score_window(buckets[epoch], threshold)
         if tracker.update(forecast.predicted_state == STATE_ABOUT_TO_START):
             return replay, epoch
     return replay, epochs[-1]
