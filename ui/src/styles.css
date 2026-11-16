@@ -315,6 +315,28 @@ button.secondary:hover:not(:disabled) {
   color: #e9a179;
 }
 
+.trigger-selectors {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.trigger-selectors label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.replay-info {
+  display: flex;
+  gap: 8px;
+  padding: 10px 0;
+  margin-bottom: 4px;
+}
+
 .trigger-controls {
   display: flex;
   align-items: flex-end;
