@@ -52,6 +52,13 @@ _RISK_NUMBER_PATTERNS = (
 #: agents") are not treated as claims.
 _NUMBER_IN_TEXT = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w])")
 
+#: Names that contain digits but are not claims about this incident: ticket ids
+#: ("PPNG-6760") and CIDR prefix lengths ("/24"). The Advisor's own prompt tells
+#: it to cite PPNG-6760 and the /24 blast radius, so counting them as invented
+#: figures made the briefing that follows the prompt fail validation. Prefix
+#: lengths are limited to /8-/32 so an arbitrary "/87" cannot hide a figure.
+_REFERENCE_NAMES = re.compile(r"\b[A-Z]{2,}[A-Z0-9]*(?:-\d+)+\b|/(?:[89]|[12]\d|3[0-2])\b")
+
 #: Tolerated tokens that appear in explanatory prose but are not claims about
 #: this incident: the horizon, the window size and the option count.
 _ALWAYS_ALLOWED_NUMBERS = {"120", "10", "60", "4", "2", "1", "3", "0", "300", "30"}
@@ -182,8 +189,10 @@ def check_evidence(
             )
             return
 
+    # Only the figure scan skips reference names; the risk-figure patterns above
+    # still read the full text.
     unsupported: list[str] = []
-    for raw in _NUMBER_IN_TEXT.findall(joined):
+    for raw in _NUMBER_IN_TEXT.findall(_REFERENCE_NAMES.sub(" ", joined)):
         normalised = raw.rstrip("0").rstrip(".") if "." in raw else raw
         if normalised in _ALWAYS_ALLOWED_NUMBERS or raw in _ALWAYS_ALLOWED_NUMBERS:
             continue

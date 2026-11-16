@@ -13,10 +13,44 @@ country-concentration and prior-episode counts only.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..rehearsal.simulator import CANDIDATES
+
+#: Decimal places an agent may round a quoted value to ("0.4231" -> "0.42").
+_VALUE_DECIMALS = range(0, 5)
+#: The same value read as a percentage ("0.4231" -> "42.31%").
+_PERCENT_DECIMALS = range(0, 3)
+
+
+def _trim(number: float, decimals: int) -> str:
+    text = f"{number:.{decimals}f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def numeric_forms(value: Any) -> set[str]:
+    """Every string an agent may use to quote `value` faithfully.
+
+    The validator extracts numbers from prose without their sign, so a value of
+    -0.4231 can only ever be seen as "0.4231". The forms are therefore built
+    from the *magnitude*; the direction of a change is left to the agent and
+    the reader. Rounded and percentage renderings are accepted because an
+    explanation that says "about 42%" is quoting the evidence, not inventing a
+    figure. Anything else — a different value, or arithmetic on one — is still
+    rejected.
+
+    Non-numbers, booleans and non-finite floats yield no forms.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return set()
+    magnitude = abs(float(value))
+    if not math.isfinite(magnitude):
+        return set()
+    forms = {_trim(magnitude, places) for places in _VALUE_DECIMALS}
+    forms |= {_trim(magnitude * 100.0, places) for places in _PERCENT_DECIMALS}
+    return forms
 
 
 @dataclass
@@ -52,13 +86,7 @@ class EvidenceBundle:
         values: set[str] = set()
 
         def add(value: Any) -> None:
-            if isinstance(value, bool) or value is None:
-                return
-            if isinstance(value, (int, float)):
-                values.add(f"{float(value):.4f}".rstrip("0").rstrip("."))
-                values.add(str(int(round(float(value)))))
-                values.add(f"{float(value) * 100:.1f}".rstrip("0").rstrip("."))
-                values.add(str(int(round(float(value) * 100))))
+            values.update(numeric_forms(value))
 
         add(self.risk_score)
         add(self.horizon_seconds)
