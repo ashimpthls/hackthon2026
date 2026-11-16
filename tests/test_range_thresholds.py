@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import json
 
+import numpy as np
 import pytest
 
 from conftest import EPOCH, RANGE_ID
@@ -95,6 +96,44 @@ def test_a_higher_range_threshold_suppresses_the_warning():
 def test_a_lower_range_threshold_warns_where_the_model_would_not():
     state, _ = run([0.1, 0.3, 0.3, 0.1], 0.25)
     assert state.first_warning_epoch == EPOCH + 20
+
+
+def test_the_alert_lifecycle_raises_against_the_range_threshold_too():
+    # Lower bar: the lifecycle and the debounced warning open on the same window.
+    state, events = run([0.1, 0.3, 0.3, 0.3], 0.25)
+    assert [e["alert"]["state"] for e in events][2] == "WARNING"
+    assert state.first_warning_epoch == EPOCH + 20
+    # Higher bar: neither opens, though the model's 0.5 would have.
+    _, events = run(SCORES, 0.7)
+    assert not any(e["alert"]["is_open"] for e in events)
+
+
+class ConstantModel:
+    """Scores every window the same."""
+
+    def __init__(self, score: float) -> None:
+        self.score = score
+
+    def predict_proba(self, frame):
+        return np.array([[1 - self.score, self.score]] * len(frame))
+
+
+def test_the_counterfactual_is_offered_against_the_range_threshold(tmp_path, monkeypatch):
+    service = ForecasterService(tmp_path / "missing.pkl")
+    service._features = ["growth_pps_60s"]
+    seen: list[float] = []
+    monkeypatch.setattr(
+        service, "_counterfactual",
+        lambda row, score, evidence, threshold=None: seen.append(threshold) or {"threshold": threshold},
+    )
+    monkeypatch.setattr(service, "build_evidence", lambda row, score: [])
+
+    service._model = ConstantModel(0.4)
+    rows = [dict(make_replay(1)["windows"][0], growth_pps_60s=1.0)]
+
+    assert service.score_window(rows, 0.3).counterfactual == {"threshold": 0.3}  # 0.4 alerts at 0.3
+    assert service.score_window(rows, 0.5).counterfactual is None  # ... but not at 0.5
+    assert seen == [0.3]
 
 
 def test_no_range_threshold_uses_the_model():

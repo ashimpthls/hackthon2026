@@ -30,6 +30,7 @@ from ..config import (
     STATE_MONITORING_ONLY,
 )
 from ..memory.features import FEATURE_COLUMNS
+from .counterfactual import find_counterfactual
 
 log = logging.getLogger("dfsi.forecaster.serve")
 
@@ -105,6 +106,9 @@ class Forecast:
     model_version: str
     feature_version: str
     evidence: list[dict] = field(default_factory=list)
+    #: For a window at or above threshold: how far the top drivers would have to
+    #: come back for the alert to stop (see `counterfactual`). `None` otherwise.
+    counterfactual: dict | None = None
     degraded: bool = False
     degraded_reason: str | None = None
     #: The decision threshold this forecast's band and state were judged
@@ -123,6 +127,7 @@ class Forecast:
             "model_version": self.model_version,
             "feature_version": self.feature_version,
             "evidence": self.evidence,
+            "counterfactual": self.counterfactual,
             "degraded": self.degraded,
             "degraded_reason": self.degraded_reason,
             "decision_threshold": self.decision_threshold,
@@ -245,6 +250,7 @@ class ForecasterService:
                 epoch, range_id, account_id, f"scoring error: {exc}", threshold
             )
 
+        evidence = self.build_evidence(windows[best], score)
         return Forecast(
             window_start_epoch=epoch,
             range_id=range_id,
@@ -255,7 +261,15 @@ class ForecasterService:
             horizon_seconds=HORIZON_SECONDS,
             model_version=self.model_version,
             feature_version=self.feature_version,
-            evidence=self.build_evidence(windows[best], score),
+            evidence=evidence,
+            # Only an alerting window has anything to calm; skip the extra
+            # model calls on the quiet majority. "Calm" means below the
+            # threshold this range is read against, not the model's.
+            counterfactual=(
+                self._counterfactual(windows[best], score, evidence, threshold)
+                if score >= threshold
+                else None
+            ),
             decision_threshold=threshold,
         )
 
@@ -283,6 +297,47 @@ class ForecasterService:
             degraded_reason=reason,
             decision_threshold=threshold if threshold is not None else self.decision_threshold,
         )
+
+    def _counterfactual(
+        self, row: dict, score: float, evidence: list[dict], threshold: float | None = None
+    ) -> dict | None:
+        """How far the drivers of this alert would have to come back for it to stop.
+
+        "Stop" means falling below `threshold`: the range's own decision
+        threshold, or the model's when `None`.
+
+        The drivers are the evidence items pushing the score up, strongest first.
+        Needs the quiet reference, so models saved without one return `None`.
+        Explanation is not safety: any failure is logged and the forecast is
+        returned without it.
+        """
+        if not self._reference:
+            return None
+        drivers = [
+            item["feature"]
+            for item in sorted(
+                (i for i in evidence if i.get("contribution", 0.0) > 0.0),
+                key=lambda i: i["contribution"],
+                reverse=True,
+            )
+        ]
+        try:
+            values = [np.nan if row[col] is None else float(row[col]) for col in self._features]
+            return find_counterfactual(
+                lambda batch: self._model.predict_proba(
+                    pd.DataFrame(batch, columns=self._features)
+                )[:, 1],
+                self._features,
+                values,
+                self._reference,
+                drivers,
+                EVIDENCE_LABELS,
+                self.decision_threshold if threshold is None else threshold,
+                score,
+            )
+        except Exception:
+            log.warning("could not build a counterfactual", exc_info=True)
+            return None
 
     # ------------------------------------------------------------------ #
     def build_evidence(self, row: dict, score: float, top_n: int = 6) -> list[dict]:
