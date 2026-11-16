@@ -10,8 +10,25 @@ import { useState } from 'react'
 import type { DecisionRecord, PolicyKey, PolicyPlan } from '../lib/types'
 import { POLICY_LABELS, formatRate } from '../lib/format'
 
+/** Will approving the selected response change the policy store? `null`: not known yet. */
+export function willApply(selected: PolicyKey | null, plan: PolicyPlan | null): boolean | null {
+  if (selected !== 'tighten_vector') return false
+  if (!plan) return null // the API works the plan out when the decision is recorded
+  return plan.available && plan.per_type.some((row) => row.apply)
+}
+
 /** What approving "tighten" would actually change, in numbers. */
-function ProposedChange({ plan }: { plan: PolicyPlan | null }) {
+function ProposedChange({
+  plan,
+  decisionEpoch,
+  warningEpoch,
+  onDecideAtWarning,
+}: {
+  plan: PolicyPlan | null
+  decisionEpoch: number | null
+  warningEpoch: number | null
+  onDecideAtWarning?: () => void
+}) {
   if (!plan) {
     return <p className="panel-note">Run the drill to see the concrete thresholds.</p>
   }
@@ -20,10 +37,28 @@ function ProposedChange({ plan }: { plan: PolicyPlan | null }) {
   }
   const applied = plan.per_type.filter((row) => row.apply)
   if (applied.length === 0) {
+    // Two different reasons, and they need different next steps.
+    if (plan.per_type.some((row) => row.suspect)) {
+      return (
+        <p className="panel-note">
+          No traffic type can be tightened without dropping last week's legitimate peaks.
+          Approving records the decision; no line changes.
+        </p>
+      )
+    }
+    const canMove = warningEpoch !== null && warningEpoch !== decisionEpoch && onDecideAtWarning
     return (
-      <p className="panel-note">
-        No traffic type can be tightened without dropping last week's legitimate peaks.
-      </p>
+      <div className="no-change-note">
+        <p className="panel-note">
+          No traffic type is elevated at window {decisionEpoch}, and only an elevated vector is
+          tightened. Approving here records the decision; no line changes.
+        </p>
+        {canMove && (
+          <button type="button" className="secondary" onClick={onDecideAtWarning}>
+            Decide at DFSI's warning (window {warningEpoch})
+          </button>
+        )}
+      </div>
     )
   }
   return (
@@ -46,6 +81,10 @@ interface Props {
   policyPlan: PolicyPlan | null
   modelVersion: string
   decisionEpoch: number | null
+  /** The window DFSI first warned at, where a decision is normally made. */
+  warningEpoch: number | null
+  /** Move the decision to `warningEpoch` and re-run the drill there. */
+  onDecideAtWarning?: () => void
   onDecide: (verdict: 'approved' | 'rejected' | 'changed', note: string) => Promise<void>
   /** Run the attack again, now under the policy just approved. */
   onReplay: () => void
@@ -61,6 +100,8 @@ export function DecisionBar({
   policyPlan,
   modelVersion,
   decisionEpoch,
+  warningEpoch,
+  onDecideAtWarning,
   onDecide,
   onReplay,
   canReplay,
@@ -80,6 +121,12 @@ export function DecisionBar({
     selected !== null && recommended !== null && selected !== recommended
       ? 'changed'
       : 'approved'
+  // Say on the button whether it changes anything, so "Approve" is never
+  // mistaken for "apply" when it only records.
+  const applies = willApply(selected, policyPlan)
+  const approveLabel =
+    (verdictForSelection === 'changed' ? 'Record my override' : 'Approve') +
+    (applies === true ? ' and apply' : applies === false ? ' — record only' : '')
 
   return (
     <section className="panel decision-panel">
@@ -105,7 +152,21 @@ export function DecisionBar({
             <>Pick a response in the rehearsal room to record a decision.</>
           )}
         </p>
-        {selected === 'tighten_vector' && <ProposedChange plan={policyPlan} />}
+        {selected === 'tighten_vector' ? (
+          <ProposedChange
+            plan={policyPlan}
+            decisionEpoch={decisionEpoch}
+            warningEpoch={warningEpoch}
+            onDecideAtWarning={onDecideAtWarning}
+          />
+        ) : (
+          selected && (
+            <p className="panel-note">
+              Recorded for audit only. Only "Tighten the vector threshold" changes the policy
+              store.
+            </p>
+          )
+        )}
 
         <label className="decision-note">
           Note for the record
@@ -126,7 +187,7 @@ export function DecisionBar({
             onClick={() => submit(verdictForSelection)}
             disabled={!ready}
           >
-            {verdictForSelection === 'changed' ? 'Record my override' : 'Approve'}
+            {approveLabel}
           </button>
           <button
             type="button"

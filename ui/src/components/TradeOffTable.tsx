@@ -7,8 +7,33 @@
  * time.
  */
 
-import type { DrillResult, PolicyKey, PolicyPlan, SimulationCandidate } from '../lib/types'
+import type {
+  DrillResult,
+  PolicyKey,
+  PolicyPlan,
+  PolicyTypeSuggestion,
+  SimulationCandidate,
+} from '../lib/types'
 import { formatRate, formatSeconds } from '../lib/format'
+
+/**
+ * What approving "Tighten" does to one row, and if nothing, why not.
+ *
+ * A suggested line is only applied on a vector that is elevated right now, so
+ * a row can show a tighter suggestion that approval will not touch. Saying so
+ * on the row stops "Suggested 35k" reading as "approving sets 35k".
+ */
+export function approvalOutcome(row: PolicyTypeSuggestion): { applies: boolean; text: string } {
+  if (row.apply) return { applies: true, text: `set to ${formatRate(row.suggested_policy_pps)}` }
+  if (row.changes) {
+    return {
+      applies: false,
+      text: `unchanged · not elevated now (${row.ratio_to_normal_now.toFixed(1)}× normal)`,
+    }
+  }
+  if (row.suspect) return { applies: false, text: 'unchanged · no safe tighter line' }
+  return { applies: false, text: 'unchanged' }
+}
 
 /** The concrete per-type thresholds behind "Tighten the vector threshold". */
 function PolicyPlanTable({ plan }: { plan: PolicyPlan | null }) {
@@ -23,13 +48,16 @@ function PolicyPlanTable({ plan }: { plan: PolicyPlan | null }) {
       </div>
     )
   }
+  const anyApplies = plan.per_type.some((row) => row.apply)
   return (
     <div className="policy-plan">
       <h3>Suggested policy change</h3>
       <p className="panel-note">
         Learned from the past {plan.history_days.toFixed(1)} days of this range's traffic
-        ({plan.excluded_incident_hours} incident hours excluded). The highlighted rows are
-        what "Tighten the vector threshold" changes.
+        ({plan.excluded_incident_hours} incident hours excluded).{' '}
+        {anyApplies
+          ? 'The highlighted rows are what approving "Tighten the vector threshold" changes.'
+          : 'At this window approving "Tighten the vector threshold" changes no line: only a vector elevated right now is tightened.'}
       </p>
       <table className="tradeoff">
         <thead>
@@ -41,10 +69,13 @@ function PolicyPlanTable({ plan }: { plan: PolicyPlan | null }) {
             <th scope="col">Suggested policy</th>
             <th scope="col">Change</th>
             <th scope="col">Last week it would have dropped</th>
+            <th scope="col">If approved</th>
           </tr>
         </thead>
         <tbody>
-          {plan.per_type.map((row) => (
+          {plan.per_type.map((row) => {
+            const outcome = approvalOutcome(row)
+            return (
             <tr key={row.traffic_type} className={row.apply ? 'is-selected' : undefined}>
               <th scope="row">
                 {row.traffic_type}
@@ -69,8 +100,12 @@ function PolicyPlanTable({ plan }: { plan: PolicyPlan | null }) {
                   ? `${row.backtest_legit_lost_pct.toFixed(3)}% of non-incident traffic · ${row.backtest_windows_blocked} windows`
                   : '—'}
               </td>
+              <td className={`mono ${outcome.applies ? 'outcome-applies' : 'outcome-none'}`}>
+                {outcome.text}
+              </td>
             </tr>
-          ))}
+            )
+          })}
         </tbody>
       </table>
     </div>
