@@ -56,6 +56,13 @@ _NUMBER_IN_TEXT = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w])")
 #: this incident: the horizon, the window size and the option count.
 _ALWAYS_ALLOWED_NUMBERS = {"120", "10", "60", "4", "2", "1", "3", "0", "300", "30"}
 
+#: A range or account named in prose by its numeric id ("range 90110002").
+#: Six or more digits, so ordinary figures such as "range 2000 pps" are not
+#: read as tenant ids. Only the first id after the keyword is captured.
+_TENANT_REFERENCE = re.compile(
+    r"\b(range|account)s?\b(?:\s+id)?\s*[#:]?\s*(\d{6,})\b", re.IGNORECASE
+)
+
 
 @dataclass
 class ValidationReport:
@@ -92,7 +99,12 @@ def _iter_strings(value: Any) -> list[str]:
 def check_tenant_scope(
     output: dict, expected_account_id: int | None, expected_range_id: int, report: ValidationReport
 ) -> None:
-    """The output must reference only the account and range under review."""
+    """The output must reference only the account and range under review.
+
+    Checks the structured ids the output states about itself, then the prose:
+    an explanation that discusses "range 90110002" while briefing on another
+    range has strayed outside its tenant even if every structured field is right.
+    """
     stated_range = output.get("range_id")
     if stated_range is not None and int(stated_range) != int(expected_range_id):
         report.fail(
@@ -111,6 +123,15 @@ def check_tenant_scope(
             f"output references account {stated_account}, expected {expected_account_id}",
         )
         return
+
+    for kind, number in _TENANT_REFERENCE.findall(" ".join(_iter_strings(output))):
+        expected = expected_range_id if kind.lower() == "range" else expected_account_id
+        if expected is not None and int(number) != int(expected):
+            report.fail(
+                "tenant_scope",
+                f"output discusses {kind.lower()} {number}, expected {expected}",
+            )
+            return
     report.ok("tenant_scope")
 
 
@@ -212,11 +233,15 @@ def check_allowed_actions(output: dict, report: ValidationReport) -> None:
 def check_tool_use(
     calls: Sequence[dict], allowed: Sequence[str], report: ValidationReport
 ) -> None:
-    """The agent may only have used the tools its role permits."""
+    """The agent may only have used the tools its role permits.
+
+    Refused attempts count: the toolbox records them with `denied: true`, and
+    reaching outside its role fails an agent whether or not the call succeeded.
+    """
     used = {call.get("tool") for call in calls}
     forbidden = sorted(name for name in used if name and name not in set(allowed))
     if forbidden:
-        report.fail("tool_use", f"agent used tools outside its role: {forbidden}")
+        report.fail("tool_use", f"agent used or attempted tools outside its role: {forbidden}")
         return
     report.ok("tool_use")
 

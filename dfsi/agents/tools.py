@@ -42,6 +42,10 @@ class EvidenceBundle:
     simulation: dict | None = None
     #: Tenant the request is scoped to. The validator enforces this.
     tenant_account_id: int | None = None
+    #: The instant this evidence is judged against. A replay supplies its own
+    #: clock (the decision epoch); live use leaves it unset and the orchestrator
+    #: reads the wall clock, which is what makes the freshness check bite.
+    as_of_epoch: int | None = None
 
     def citable_numbers(self) -> set[str]:
         """String forms of every number an agent may legitimately quote."""
@@ -71,6 +75,40 @@ class EvidenceBundle:
                     add(value)
         return values
 
+    def newest_evidence_epoch(self) -> int:
+        """Start of the newest window any agent can see.
+
+        Taken over the forecast *and* the traffic rows, so a bundle that leaks
+        windows from after the decision instant shows up as evidence from the
+        future rather than hiding behind the forecast's own timestamp.
+        """
+        epochs = [self.window_start_epoch]
+        epochs.extend(
+            int(row["window_start_epoch"])
+            for row in self.recent_windows
+            if row.get("window_start_epoch") is not None
+        )
+        return max(epochs)
+
+    def scope_violations(self) -> list[str]:
+        """Rows that describe a range or account other than the one under review.
+
+        Tenant isolation is a property of how the bundle is assembled, so it is
+        checked before any agent runs: once another tenant's rows have been
+        sent to a model, rejecting its output is too late.
+        """
+        account = self.tenant_account_id if self.tenant_account_id is not None else self.account_id
+        problems: list[str] = []
+        for row in self.recent_windows:
+            row_range = row.get("range_id", self.range_id)
+            row_account = row.get("account_id", account)
+            if int(row_range) != int(self.range_id) or int(row_account) != int(account):
+                problems.append(
+                    f"window {row.get('window_start_epoch')} is for range {row_range} / "
+                    f"account {row_account}, expected range {self.range_id} / account {account}"
+                )
+        return problems
+
 
 class ReadOnlyToolbox:
     """Bound tool implementations for a single evidence bundle.
@@ -86,6 +124,15 @@ class ReadOnlyToolbox:
 
     def _record(self, name: str, payload: dict) -> None:
         self.calls.append({"tool": name, "arguments": payload})
+
+    def record_denied(self, name: str, arguments: dict | None = None) -> None:
+        """Log an attempt to use a tool outside the agent's role.
+
+        The call is refused, but it must stay on the audit trail: the validator
+        fails an agent that reached outside its role, and it cannot see a
+        refusal that was never recorded.
+        """
+        self.calls.append({"tool": name, "arguments": arguments or {}, "denied": True})
 
     # ------------------------------------------------------------------ #
     def get_forecast_evidence(self) -> str:
