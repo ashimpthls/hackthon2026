@@ -314,6 +314,9 @@ def _build_bundle(
         recent_windows=recent,
         simulation=simulation,
         tenant_account_id=forecast.account_id,
+        # A replay's "now" is the instant the operator is deciding at; any
+        # window after it would be evidence from the future.
+        as_of_epoch=decision_epoch,
     )
 
 

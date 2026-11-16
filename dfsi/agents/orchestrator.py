@@ -170,8 +170,19 @@ class AgentResult:
 class ExplainerOrchestrator:
     """Runs the Investigator, then the Advisor, validating each in turn."""
 
-    def __init__(self, api_key: str | None = None, model: str = MODEL) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = MODEL,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self.model = model
+        #: Wall clock for the staleness half of the freshness check; pass
+        #: `time.time` when explaining live data. Unset (the replay-only
+        #: default), a bundle is judged against its own forecast epoch, so the
+        #: look-ahead half still runs but recorded epochs are not compared with
+        #: today's date and rejected as years old.
+        self._clock = clock
         self._api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self._client = None
         self.engine = "offline-rules"
@@ -316,6 +327,21 @@ class ExplainerOrchestrator:
         engine = self.engine
         output: dict | None = None
 
+        # Tenant isolation is decided before any model sees the data: once
+        # another tenant's rows have been sent out, rejecting the answer is
+        # too late.
+        violations = bundle.scope_violations()
+        if violations:
+            log.error("%s not run: evidence bundle spans tenants: %s", agent, violations)
+            return self._withheld(
+                agent=agent,
+                engine="withheld",
+                failures=violations,
+                checks={"tenant_scope": False},
+                warnings=[],
+                toolbox=toolbox,
+            )
+
         if self._client is not None:
             try:
                 output = self._call_claude(
@@ -339,37 +365,36 @@ class ExplainerOrchestrator:
                 getattr(toolbox, name)()
             output = offline()
 
-        output.setdefault("range_id", bundle.range_id)
-        output.setdefault("account_id", bundle.account_id)
-        output.setdefault("requires_human_decision", True)
-
+        # Validate what the agent actually said. The ids are stamped on only
+        # afterwards: stamping them first would hand the tenant-scope check the
+        # very values it is meant to verify.
+        now_epoch = self._now_epoch(bundle)
         report = validate(
             output,
             required_fields=required_fields,
             expected_range_id=bundle.range_id,
             expected_account_id=bundle.tenant_account_id or bundle.account_id,
             citable_numbers=bundle.citable_numbers(),
-            evidence_epoch=bundle.window_start_epoch,
-            now_epoch=bundle.window_start_epoch,
+            evidence_epoch=bundle.newest_evidence_epoch(),
+            now_epoch=now_epoch,
             tool_calls=toolbox.calls,
             allowed_tools=allowed_tools,
         )
 
         if not report.passed:
             log.warning("%s output rejected by validator: %s", agent, report.failures)
-            return AgentResult(
+            return self._withheld(
                 agent=agent,
                 engine=engine,
-                output=monitoring_only_notice(
-                    f"the {agent}'s explanation did not pass validation", report.failures
-                ),
-                validated=False,
-                validator_checks=report.checks,
-                validator_failures=report.failures,
-                validator_warnings=report.warnings,
-                tool_calls=toolbox.calls,
-                model_version=self.model if engine == "claude" else None,
+                failures=report.failures,
+                checks=report.checks,
+                warnings=report.warnings,
+                toolbox=toolbox,
             )
+
+        output.setdefault("range_id", bundle.range_id)
+        output.setdefault("account_id", bundle.account_id)
+        output.setdefault("requires_human_decision", True)
 
         return AgentResult(
             agent=agent,
@@ -378,6 +403,43 @@ class ExplainerOrchestrator:
             validated=True,
             validator_checks=report.checks,
             validator_warnings=report.warnings,
+            tool_calls=toolbox.calls,
+            model_version=self.model if engine == "claude" else None,
+        )
+
+    def _now_epoch(self, bundle: EvidenceBundle) -> int:
+        """The instant `bundle`'s evidence is judged against.
+
+        In order: the bundle's own clock (a replay's decision epoch), the wall
+        clock if one was configured, else the forecast's own epoch.
+        """
+        if bundle.as_of_epoch is not None:
+            return bundle.as_of_epoch
+        if self._clock is not None:
+            return int(self._clock())
+        return bundle.window_start_epoch
+
+    def _withheld(
+        self,
+        *,
+        agent: str,
+        engine: str,
+        failures: list[str],
+        checks: dict[str, bool],
+        warnings: list[str],
+        toolbox: ReadOnlyToolbox,
+    ) -> AgentResult:
+        """The fail-safe result: a monitoring-only notice naming what failed."""
+        return AgentResult(
+            agent=agent,
+            engine=engine,
+            output=monitoring_only_notice(
+                f"the {agent}'s explanation did not pass validation", failures
+            ),
+            validated=False,
+            validator_checks=checks,
+            validator_failures=failures,
+            validator_warnings=warnings,
             tool_calls=toolbox.calls,
             model_version=self.model if engine == "claude" else None,
         )
@@ -478,6 +540,9 @@ class ExplainerOrchestrator:
         """
         name = block.name
         if name not in allowed_tools:
+            # Refused, but recorded: the validator fails an agent that reached
+            # outside its role, and can only do so for attempts it can see.
+            toolbox.record_denied(name, block.input)
             return {
                 "type": "tool_result",
                 "tool_use_id": block.id,
