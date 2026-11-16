@@ -194,13 +194,50 @@ class ExplainerOrchestrator:
 
     # ------------------------------------------------------------------ #
     def explain(self, bundle: EvidenceBundle) -> dict:
-        """Run both agents and return the combined, validated briefing."""
+        """Run both agents and return the combined, validated briefing.
+
+        Fails safe before any agent runs: a window the forecaster could not
+        score has no risk figure to explain, and the agents would otherwise
+        produce a confident, validated-looking briefing from raw traffic rows
+        alone. The answer there is "unknown", never "explained".
+        """
+        if bundle.risk_score is None:
+            return self._unscored_briefing(bundle)
+
         investigator = self.run_investigator(bundle)
         reading = investigator.output.get("reading") if investigator.validated else None
         advisor = self.run_advisor(bundle, reading)
+        return self._briefing(bundle, investigator, advisor)
 
+    def _unscored_briefing(self, bundle: EvidenceBundle) -> dict:
+        reason = (
+            "the forecaster produced no risk score for this window, so there is "
+            "nothing to explain"
+        )
+        log.warning("explanation withheld for range %s: %s", bundle.range_id, reason)
+        withheld = [
+            AgentResult(
+                agent=agent,
+                engine="withheld",
+                output=monitoring_only_notice(reason),
+                validated=False,
+                validator_failures=[reason],
+            )
+            for agent in ("investigator", "advisor")
+        ]
+        briefing = self._briefing(bundle, *withheld, engine="withheld")
+        briefing["withheld_reason"] = reason
+        return briefing
+
+    def _briefing(
+        self,
+        bundle: EvidenceBundle,
+        investigator: AgentResult,
+        advisor: AgentResult,
+        engine: str | None = None,
+    ) -> dict:
         return {
-            "engine": self.engine,
+            "engine": engine or self.engine,
             "range_id": bundle.range_id,
             "account_id": bundle.account_id,
             "window_start_epoch": bundle.window_start_epoch,
