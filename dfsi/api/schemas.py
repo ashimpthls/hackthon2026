@@ -100,4 +100,9 @@ class ModelCardResponse(BaseModel):
     baseline_metrics: dict[str, Any]
     per_scenario_type: dict[str, Any]
     feature_importance: dict[str, float]
+    #: What an alert additionally requires (traffic evidence), the same model's
+    #: figures with the requirement off, and how many windows it withheld.
+    #: `None` for a model trained before the gate existed.
+    evidence_gate: dict[str, Any] | None = None
+    headline_metrics_without_gate: dict[str, Any] | None = None
     known_limitations: list[str]

@@ -60,6 +60,12 @@ KNOWN_LIMITATIONS = [
     "Evaluated on one held-out synthetic week that follows every week the "
     "model was fitted or calibrated on. One week is a small sample; treat "
     "the headline figures as estimates, not guarantees.",
+    "An alert needs traffic that is abnormal for the hour (the evidence gate), "
+    "so context alone, such as recent attack history on the account, cannot "
+    "raise one. An attack whose first minutes stay inside the normal range "
+    "alerts only once its deviation passes the bar. The bar was set from the "
+    "pipeline's own abnormal-window threshold and its effect measured on "
+    "synthetic data only; withheld windows are reported, not hidden.",
     "Recovery scenarios open mid-attack, so there is no runway to forecast "
     "from. They are excluded from the head-start figures and reported "
     "separately as `in_progress_detected` — a detection rate, not a warning.",
@@ -159,8 +165,17 @@ def model_card() -> ModelCardResponse:
         baseline_metrics=report.get("fixed_threshold_baseline", {}),
         per_scenario_type=report.get("per_scenario_type", {}),
         feature_importance=report.get("feature_importance", {}),
+        evidence_gate=_gate_summary(report.get("evidence_gate")),
+        headline_metrics_without_gate=report.get("dfsi_without_gate"),
         known_limitations=KNOWN_LIMITATIONS,
     )
+
+
+def _gate_summary(gate: dict | None) -> dict | None:
+    """The gate's setting and effect, without the bulky per-type comparison."""
+    if gate is None:
+        return None
+    return {k: v for k, v in gate.items() if k != "per_scenario_type_without_gate"}
 
 
 # --------------------------------------------------------------------------- #
