@@ -8,7 +8,7 @@ interface Props {
   catalogue: CatalogueEntry[]
   policies: PolicySnapshot | null
   selected: string | null
-  onSelect: (replayId: string) => void
+  onSelect: (replayId: string | null) => void
   speed: number
   onSpeedChange: (speed: number) => void
   running: boolean
@@ -22,10 +22,12 @@ interface Account {
   ranges: { range_id: number }[]
 }
 
-function groupByAccount(policies: PolicySnapshot | null): Account[] {
+/** Accounts and ranges from the policy store, keeping only ranges that have a replay. */
+function groupByAccount(policies: PolicySnapshot | null, catalogue: CatalogueEntry[]): Account[] {
+  const replayed = new Set(catalogue.map((entry) => entry.range_id))
   const accounts = new Map<number, Account>()
   for (const range of policies?.ranges ?? []) {
-    if (range.account_id === null) continue
+    if (range.account_id === null || !replayed.has(range.range_id)) continue
     const account = accounts.get(range.account_id) ?? { account_id: range.account_id, ranges: [] }
     account.ranges.push({ range_id: range.range_id })
     accounts.set(range.account_id, account)
@@ -53,7 +55,7 @@ export function TriggerPanel({
   disabled,
 }: Props) {
   const [scenarios, setScenarios] = useState<string[]>([])
-  const accounts = useMemo(() => groupByAccount(policies), [policies])
+  const accounts = useMemo(() => groupByAccount(policies, catalogue), [policies, catalogue])
   const [selectedScenario, setSelectedScenario] = useState<string>('')
   const [selectedAccountId, setSelectedAccountId] = useState<number | ''>('')
   const [selectedRangeId, setSelectedRangeId] = useState<number | ''>('')
@@ -88,9 +90,8 @@ export function TriggerPanel({
           entry.scenario_type === selectedScenario &&
           entry.range_id === selectedRangeId,
       )
-      if (matching) {
-        onSelect(matching.replay_id)
-      }
+      // Clear rather than keep the previous pick, which would replay a different range.
+      onSelect(matching?.replay_id ?? null)
     }
   }, [selectedScenario, selectedAccountId, selectedRangeId, catalogue, onSelect])
 
@@ -163,6 +164,14 @@ export function TriggerPanel({
           </select>
         </label>
       </div>
+
+      {selectedRangeId && !selectedReplay && (
+        <div className="replay-info">
+          <span className="panel-note">
+            No {SCENARIO_LABELS[selectedScenario] ?? selectedScenario} replay on this range
+          </span>
+        </div>
+      )}
 
       {onsetStatus !== null && (
         <div className="replay-info">
