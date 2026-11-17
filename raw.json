@@ -6,6 +6,7 @@
         {
           "range_id": 90110001,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "has_onset": false,
           "risk_threshold": 0.45,
           "traffic_types": {
             "udp": {
@@ -57,7 +58,66 @@
               "max_threshold_mbps": 728.0,
               "mean_packet_bytes": 700
             }
-          }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110010,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 12000.0,
+              "base_mbps": 105.6,
+              "max_threshold_pps": 60000.0,
+              "max_threshold_mbps": 528.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 18000.0,
+              "base_mbps": 9.216,
+              "max_threshold_pps": 90000.0,
+              "max_threshold_mbps": 46.08,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 35000.0,
+              "base_mbps": 196.0,
+              "max_threshold_pps": 175000.0,
+              "max_threshold_mbps": 980.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110011,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 20000.0,
+              "base_mbps": 176.0,
+              "max_threshold_pps": 100000.0,
+              "max_threshold_mbps": 880.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 16000.0,
+              "base_mbps": 8.192,
+              "max_threshold_pps": 80000.0,
+              "max_threshold_mbps": 40.96,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 42000.0,
+              "base_mbps": 235.2,
+              "max_threshold_pps": 210000.0,
+              "max_threshold_mbps": 1176.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
         }
       ]
     },
@@ -90,7 +150,66 @@
               "max_threshold_mbps": 1792.0,
               "mean_packet_bytes": 700
             }
-          }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110012,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 25000.0,
+              "base_mbps": 220.0,
+              "max_threshold_pps": 125000.0,
+              "max_threshold_mbps": 1100.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 20000.0,
+              "base_mbps": 10.24,
+              "max_threshold_pps": 100000.0,
+              "max_threshold_mbps": 51.2,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 55000.0,
+              "base_mbps": 308.0,
+              "max_threshold_pps": 275000.0,
+              "max_threshold_mbps": 1540.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110013,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 18000.0,
+              "base_mbps": 158.4,
+              "max_threshold_pps": 90000.0,
+              "max_threshold_mbps": 792.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 12000.0,
+              "base_mbps": 6.144,
+              "max_threshold_pps": 60000.0,
+              "max_threshold_mbps": 30.72,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 38000.0,
+              "base_mbps": 212.8,
+              "max_threshold_pps": 190000.0,
+              "max_threshold_mbps": 1064.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
         }
       ]
     },
@@ -123,7 +242,1039 @@
               "max_threshold_mbps": 420.0,
               "mean_packet_bytes": 700
             }
-          }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110014,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 8000.0,
+              "base_mbps": 70.4,
+              "max_threshold_pps": 40000.0,
+              "max_threshold_mbps": 352.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 9500.0,
+              "base_mbps": 4.864,
+              "max_threshold_pps": 47500.0,
+              "max_threshold_mbps": 24.32,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 19000.0,
+              "base_mbps": 106.4,
+              "max_threshold_pps": 95000.0,
+              "max_threshold_mbps": 532.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110015,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 11000.0,
+              "base_mbps": 96.8,
+              "max_threshold_pps": 55000.0,
+              "max_threshold_mbps": 484.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 10000.0,
+              "base_mbps": 5.12,
+              "max_threshold_pps": 50000.0,
+              "max_threshold_mbps": 25.6,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 22000.0,
+              "base_mbps": 123.2,
+              "max_threshold_pps": 110000.0,
+              "max_threshold_mbps": 616.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        }
+      ]
+    },
+    {
+      "account_id": 789254,
+      "ranges": [
+        {
+          "range_id": 90110016,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 27000.0,
+              "base_mbps": 237.6,
+              "max_threshold_pps": 135000.0,
+              "max_threshold_mbps": 1188.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 24000.0,
+              "base_mbps": 12.288,
+              "max_threshold_pps": 120000.0,
+              "max_threshold_mbps": 61.44,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 52000.0,
+              "base_mbps": 291.2,
+              "max_threshold_pps": 260000.0,
+              "max_threshold_mbps": 1456.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110017,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 15000.0,
+              "base_mbps": 132.0,
+              "max_threshold_pps": 75000.0,
+              "max_threshold_mbps": 660.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 14000.0,
+              "base_mbps": 7.168,
+              "max_threshold_pps": 70000.0,
+              "max_threshold_mbps": 35.84,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 30000.0,
+              "base_mbps": 168.0,
+              "max_threshold_pps": 150000.0,
+              "max_threshold_mbps": 840.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        }
+      ]
+    },
+    {
+      "account_id": 934567,
+      "ranges": [
+        {
+          "range_id": 90110018,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 32000.0,
+              "base_mbps": 281.6,
+              "max_threshold_pps": 160000.0,
+              "max_threshold_mbps": 1408.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 26000.0,
+              "base_mbps": 13.312,
+              "max_threshold_pps": 130000.0,
+              "max_threshold_mbps": 66.56,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 58000.0,
+              "base_mbps": 324.4,
+              "max_threshold_pps": 290000.0,
+              "max_threshold_mbps": 1622.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110019,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 5000.0,
+              "base_mbps": 44.0,
+              "max_threshold_pps": 25000.0,
+              "max_threshold_mbps": 220.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 6000.0,
+              "base_mbps": 3.072,
+              "max_threshold_pps": 30000.0,
+              "max_threshold_mbps": 15.36,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 11000.0,
+              "base_mbps": 61.6,
+              "max_threshold_pps": 55000.0,
+              "max_threshold_mbps": 308.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110020,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 19000.0,
+              "base_mbps": 167.2,
+              "max_threshold_pps": 95000.0,
+              "max_threshold_mbps": 836.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 15000.0,
+              "base_mbps": 7.68,
+              "max_threshold_pps": 75000.0,
+              "max_threshold_mbps": 38.4,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 33000.0,
+              "base_mbps": 184.8,
+              "max_threshold_pps": 165000.0,
+              "max_threshold_mbps": 924.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110021,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 23000.0,
+              "base_mbps": 202.4,
+              "max_threshold_pps": 115000.0,
+              "max_threshold_mbps": 1012.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 19000.0,
+              "base_mbps": 9.728,
+              "max_threshold_pps": 95000.0,
+              "max_threshold_mbps": 48.64,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 41000.0,
+              "base_mbps": 229.6,
+              "max_threshold_pps": 205000.0,
+              "max_threshold_mbps": 1148.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        }
+      ]
+    },
+    {
+      "account_id": 445821,
+      "ranges": [
+        {
+          "range_id": 90110022,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 10000.0,
+              "base_mbps": 88.0,
+              "max_threshold_pps": 50000.0,
+              "max_threshold_mbps": 440.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 8000.0,
+              "base_mbps": 4.096,
+              "max_threshold_pps": 40000.0,
+              "max_threshold_mbps": 20.48,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 21000.0,
+              "base_mbps": 117.6,
+              "max_threshold_pps": 105000.0,
+              "max_threshold_mbps": 588.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110023,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 28000.0,
+              "base_mbps": 246.4,
+              "max_threshold_pps": 140000.0,
+              "max_threshold_mbps": 1232.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 23000.0,
+              "base_mbps": 11.776,
+              "max_threshold_pps": 115000.0,
+              "max_threshold_mbps": 58.88,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 49000.0,
+              "base_mbps": 274.4,
+              "max_threshold_pps": 245000.0,
+              "max_threshold_mbps": 1372.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        }
+      ]
+    },
+    {
+      "account_id": 521000,
+      "ranges": [
+        {
+          "range_id": 90110024,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 35000.0,
+              "base_mbps": 308.0,
+              "max_threshold_pps": 175000.0,
+              "max_threshold_mbps": 1540.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 30000.0,
+              "base_mbps": 15.36,
+              "max_threshold_pps": 150000.0,
+              "max_threshold_mbps": 76.8,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 72000.0,
+              "base_mbps": 403.2,
+              "max_threshold_pps": 360000.0,
+              "max_threshold_mbps": 2016.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110025,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 13000.0,
+              "base_mbps": 114.4,
+              "max_threshold_pps": 65000.0,
+              "max_threshold_mbps": 572.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 11000.0,
+              "base_mbps": 5.632,
+              "max_threshold_pps": 55000.0,
+              "max_threshold_mbps": 28.16,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 29000.0,
+              "base_mbps": 162.4,
+              "max_threshold_pps": 145000.0,
+              "max_threshold_mbps": 812.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110026,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 22000.0,
+              "base_mbps": 193.6,
+              "max_threshold_pps": 110000.0,
+              "max_threshold_mbps": 968.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 17000.0,
+              "base_mbps": 8.704,
+              "max_threshold_pps": 85000.0,
+              "max_threshold_mbps": 43.52,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 44000.0,
+              "base_mbps": 246.4,
+              "max_threshold_pps": 220000.0,
+              "max_threshold_mbps": 1232.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110027,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 29000.0,
+              "base_mbps": 255.2,
+              "max_threshold_pps": 145000.0,
+              "max_threshold_mbps": 1276.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 25000.0,
+              "base_mbps": 12.8,
+              "max_threshold_pps": 125000.0,
+              "max_threshold_mbps": 64.0,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 60000.0,
+              "base_mbps": 336.0,
+              "max_threshold_pps": 300000.0,
+              "max_threshold_mbps": 1680.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        }
+      ]
+    },
+    {
+      "account_id": 634500,
+      "ranges": [
+        {
+          "range_id": 90110028,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 7500.0,
+              "base_mbps": 66.0,
+              "max_threshold_pps": 37500.0,
+              "max_threshold_mbps": 330.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 9000.0,
+              "base_mbps": 4.608,
+              "max_threshold_pps": 45000.0,
+              "max_threshold_mbps": 23.04,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 17000.0,
+              "base_mbps": 95.2,
+              "max_threshold_pps": 85000.0,
+              "max_threshold_mbps": 476.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110029,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 36000.0,
+              "base_mbps": 316.8,
+              "max_threshold_pps": 180000.0,
+              "max_threshold_mbps": 1584.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 28000.0,
+              "base_mbps": 14.336,
+              "max_threshold_pps": 140000.0,
+              "max_threshold_mbps": 71.68,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 66000.0,
+              "base_mbps": 369.6,
+              "max_threshold_pps": 330000.0,
+              "max_threshold_mbps": 1848.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110030,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 21000.0,
+              "base_mbps": 184.8,
+              "max_threshold_pps": 105000.0,
+              "max_threshold_mbps": 924.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 13000.0,
+              "base_mbps": 6.656,
+              "max_threshold_pps": 65000.0,
+              "max_threshold_mbps": 33.28,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 36000.0,
+              "base_mbps": 201.6,
+              "max_threshold_pps": 180000.0,
+              "max_threshold_mbps": 1008.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110031,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 24000.0,
+              "base_mbps": 211.2,
+              "max_threshold_pps": 120000.0,
+              "max_threshold_mbps": 1056.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 21000.0,
+              "base_mbps": 10.752,
+              "max_threshold_pps": 105000.0,
+              "max_threshold_mbps": 53.76,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 45000.0,
+              "base_mbps": 252.0,
+              "max_threshold_pps": 225000.0,
+              "max_threshold_mbps": 1260.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110032,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 16000.0,
+              "base_mbps": 140.8,
+              "max_threshold_pps": 80000.0,
+              "max_threshold_mbps": 704.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 12000.0,
+              "base_mbps": 6.144,
+              "max_threshold_pps": 60000.0,
+              "max_threshold_mbps": 30.72,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 32000.0,
+              "base_mbps": 179.2,
+              "max_threshold_pps": 160000.0,
+              "max_threshold_mbps": 896.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        }
+      ]
+    },
+    {
+      "account_id": 756120,
+      "ranges": [
+        {
+          "range_id": 90110033,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 40000.0,
+              "base_mbps": 352.0,
+              "max_threshold_pps": 200000.0,
+              "max_threshold_mbps": 1760.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 33000.0,
+              "base_mbps": 16.896,
+              "max_threshold_pps": 165000.0,
+              "max_threshold_mbps": 84.48,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 75000.0,
+              "base_mbps": 420.0,
+              "max_threshold_pps": 375000.0,
+              "max_threshold_mbps": 2100.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110034,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 18000.0,
+              "base_mbps": 158.4,
+              "max_threshold_pps": 90000.0,
+              "max_threshold_mbps": 792.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 15000.0,
+              "base_mbps": 7.68,
+              "max_threshold_pps": 75000.0,
+              "max_threshold_mbps": 38.4,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 37000.0,
+              "base_mbps": 207.2,
+              "max_threshold_pps": 185000.0,
+              "max_threshold_mbps": 1036.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        }
+      ]
+    },
+    {
+      "account_id": 823450,
+      "ranges": [
+        {
+          "range_id": 90110035,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 26000.0,
+              "base_mbps": 228.8,
+              "max_threshold_pps": 130000.0,
+              "max_threshold_mbps": 1144.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 20000.0,
+              "base_mbps": 10.24,
+              "max_threshold_pps": 100000.0,
+              "max_threshold_mbps": 51.2,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 50000.0,
+              "base_mbps": 280.0,
+              "max_threshold_pps": 250000.0,
+              "max_threshold_mbps": 1400.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110036,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 9500.0,
+              "base_mbps": 83.6,
+              "max_threshold_pps": 47500.0,
+              "max_threshold_mbps": 418.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 7000.0,
+              "base_mbps": 3.584,
+              "max_threshold_pps": 35000.0,
+              "max_threshold_mbps": 17.92,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 18000.0,
+              "base_mbps": 100.8,
+              "max_threshold_pps": 90000.0,
+              "max_threshold_mbps": 504.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110037,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 33000.0,
+              "base_mbps": 290.4,
+              "max_threshold_pps": 165000.0,
+              "max_threshold_mbps": 1452.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 27000.0,
+              "base_mbps": 13.824,
+              "max_threshold_pps": 135000.0,
+              "max_threshold_mbps": 69.12,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 62000.0,
+              "base_mbps": 347.2,
+              "max_threshold_pps": 310000.0,
+              "max_threshold_mbps": 1736.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110038,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 14000.0,
+              "base_mbps": 123.2,
+              "max_threshold_pps": 70000.0,
+              "max_threshold_mbps": 616.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 11000.0,
+              "base_mbps": 5.632,
+              "max_threshold_pps": 55000.0,
+              "max_threshold_mbps": 28.16,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 28000.0,
+              "base_mbps": 156.8,
+              "max_threshold_pps": 140000.0,
+              "max_threshold_mbps": 784.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110039,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 38000.0,
+              "base_mbps": 334.4,
+              "max_threshold_pps": 190000.0,
+              "max_threshold_mbps": 1672.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 31000.0,
+              "base_mbps": 15.872,
+              "max_threshold_pps": 155000.0,
+              "max_threshold_mbps": 79.36,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 68000.0,
+              "base_mbps": 380.8,
+              "max_threshold_pps": 340000.0,
+              "max_threshold_mbps": 1904.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110040,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 11000.0,
+              "base_mbps": 96.8,
+              "max_threshold_pps": 55000.0,
+              "max_threshold_mbps": 484.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 9000.0,
+              "base_mbps": 4.608,
+              "max_threshold_pps": 45000.0,
+              "max_threshold_mbps": 23.04,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 24000.0,
+              "base_mbps": 134.4,
+              "max_threshold_pps": 120000.0,
+              "max_threshold_mbps": 672.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        }
+      ]
+    },
+    {
+      "account_id": 910234,
+      "ranges": [
+        {
+          "range_id": 90110041,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 30000.0,
+              "base_mbps": 264.0,
+              "max_threshold_pps": 150000.0,
+              "max_threshold_mbps": 1320.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 22000.0,
+              "base_mbps": 11.264,
+              "max_threshold_pps": 110000.0,
+              "max_threshold_mbps": 56.32,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 55000.0,
+              "base_mbps": 308.0,
+              "max_threshold_pps": 275000.0,
+              "max_threshold_mbps": 1540.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110042,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 12000.0,
+              "base_mbps": 105.6,
+              "max_threshold_pps": 60000.0,
+              "max_threshold_mbps": 528.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 10000.0,
+              "base_mbps": 5.12,
+              "max_threshold_pps": 50000.0,
+              "max_threshold_mbps": 25.6,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 25000.0,
+              "base_mbps": 140.0,
+              "max_threshold_pps": 125000.0,
+              "max_threshold_mbps": 700.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110043,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 37000.0,
+              "base_mbps": 325.6,
+              "max_threshold_pps": 185000.0,
+              "max_threshold_mbps": 1628.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 29000.0,
+              "base_mbps": 14.848,
+              "max_threshold_pps": 145000.0,
+              "max_threshold_mbps": 74.24,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 65000.0,
+              "base_mbps": 364.0,
+              "max_threshold_pps": 325000.0,
+              "max_threshold_mbps": 1820.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        }
+      ]
+    },
+    {
+      "account_id": 998765,
+      "ranges": [
+        {
+          "range_id": 90110044,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 20000.0,
+              "base_mbps": 176.0,
+              "max_threshold_pps": 100000.0,
+              "max_threshold_mbps": 880.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 16000.0,
+              "base_mbps": 8.192,
+              "max_threshold_pps": 80000.0,
+              "max_threshold_mbps": 40.96,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 39000.0,
+              "base_mbps": 218.4,
+              "max_threshold_pps": 195000.0,
+              "max_threshold_mbps": 1092.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110045,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 34000.0,
+              "base_mbps": 299.2,
+              "max_threshold_pps": 170000.0,
+              "max_threshold_mbps": 1496.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 28000.0,
+              "base_mbps": 14.336,
+              "max_threshold_pps": 140000.0,
+              "max_threshold_mbps": 71.68,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 63000.0,
+              "base_mbps": 352.8,
+              "max_threshold_pps": 315000.0,
+              "max_threshold_mbps": 1764.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
+        },
+        {
+          "range_id": 90110046,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 8500.0,
+              "base_mbps": 74.8,
+              "max_threshold_pps": 42500.0,
+              "max_threshold_mbps": 374.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 6500.0,
+              "base_mbps": 3.328,
+              "max_threshold_pps": 32500.0,
+              "max_threshold_mbps": 16.64,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 16000.0,
+              "base_mbps": 89.6,
+              "max_threshold_pps": 80000.0,
+              "max_threshold_mbps": 448.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": true
+        },
+        {
+          "range_id": 90110047,
+          "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
+          "traffic_types": {
+            "udp": {
+              "base_pps": 25000.0,
+              "base_mbps": 220.0,
+              "max_threshold_pps": 125000.0,
+              "max_threshold_mbps": 1100.0,
+              "mean_packet_bytes": 1100
+            },
+            "tcp_syn": {
+              "base_pps": 19000.0,
+              "base_mbps": 9.728,
+              "max_threshold_pps": 95000.0,
+              "max_threshold_mbps": 48.64,
+              "mean_packet_bytes": 64
+            },
+            "http": {
+              "base_pps": 46000.0,
+              "base_mbps": 257.6,
+              "max_threshold_pps": 230000.0,
+              "max_threshold_mbps": 1288.0,
+              "mean_packet_bytes": 700
+            }
+          },
+          "has_onset": false
         }
       ]
     }
@@ -131,13 +1282,53 @@
   "_meta": {
     "policy_headroom_multiplier": 5.0,
     "window_seconds": 10,
-    "traffic_types": ["udp", "tcp_syn", "http"],
+    "traffic_types": [
+      "udp",
+      "tcp_syn",
+      "http"
+    ],
     "mean_packet_bytes": {
       "udp": 1100,
       "tcp_syn": 64,
       "http": 700
     },
-    "note": "max_threshold_pps = base_pps * 5.0 (policy_headroom). mbps = pps * mean_packet_bytes * 8 / 1_000_000",
-    "risk_threshold_note": "risk_threshold: the forecaster risk score at or above which a window counts towards a DFSI warning on this range (strictly between 0 and 1). Omit it to use the model's calibrated threshold. Read when the API starts."
+    "note": "max_threshold_pps = base_pps * 5.0 (policy_headroom). mbps = pps * mean_packet_bytes * 8 / 1_000_000"
+  },
+  "_legacy_ui_mapping": {
+    "description": "Maps old button-based UI examples to new dropdown-based UI selections",
+    "examples": [
+      {
+        "old_ui_label": "normal | range 90110001 | no onset",
+        "new_ui_selections": {
+          "scenario": "normal",
+          "account_id": 421001,
+          "range_id": 90110001
+        }
+      },
+      {
+        "old_ui_label": "normal | range 90110002 | onset in this replay",
+        "new_ui_selections": {
+          "scenario": "normal",
+          "account_id": 421001,
+          "range_id": 90110002
+        }
+      },
+      {
+        "old_ui_label": "gradual_buildup | range 90110003 | onset in this replay",
+        "new_ui_selections": {
+          "scenario": "gradual_buildup",
+          "account_id": 558777,
+          "range_id": 90110003
+        }
+      },
+      {
+        "old_ui_label": "gradual_buildup | range 90110004 | no onset",
+        "new_ui_selections": {
+          "scenario": "gradual_buildup",
+          "account_id": 612430,
+          "range_id": 90110004
+        }
+      }
+    ]
   }
 }

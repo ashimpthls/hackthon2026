@@ -7,6 +7,7 @@
           "range_id": 90110001,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
           "has_onset": false,
+          "risk_threshold": 0.45,
           "traffic_types": {
             "udp": {
               "base_pps": 14000.0,
@@ -34,6 +35,7 @@
         {
           "range_id": 90110002,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 9000.0,
@@ -62,6 +64,7 @@
         {
           "range_id": 90110010,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 12000.0,
@@ -90,6 +93,7 @@
         {
           "range_id": 90110011,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 20000.0,
@@ -123,6 +127,7 @@
         {
           "range_id": 90110003,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 31000.0,
@@ -151,6 +156,7 @@
         {
           "range_id": 90110012,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 25000.0,
@@ -179,6 +185,7 @@
         {
           "range_id": 90110013,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 18000.0,
@@ -212,6 +219,7 @@
         {
           "range_id": 90110004,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.45,
           "traffic_types": {
             "udp": {
               "base_pps": 6500.0,
@@ -240,6 +248,7 @@
         {
           "range_id": 90110014,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 8000.0,
@@ -268,6 +277,7 @@
         {
           "range_id": 90110015,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 11000.0,
@@ -301,6 +311,7 @@
         {
           "range_id": 90110016,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 27000.0,
@@ -329,6 +340,7 @@
         {
           "range_id": 90110017,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 15000.0,
@@ -362,6 +374,7 @@
         {
           "range_id": 90110018,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 32000.0,
@@ -390,6 +403,7 @@
         {
           "range_id": 90110019,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 5000.0,
@@ -418,6 +432,7 @@
         {
           "range_id": 90110020,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 19000.0,
@@ -446,6 +461,7 @@
         {
           "range_id": 90110021,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 23000.0,
@@ -479,6 +495,7 @@
         {
           "range_id": 90110022,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 10000.0,
@@ -507,6 +524,7 @@
         {
           "range_id": 90110023,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 28000.0,
@@ -540,6 +558,7 @@
         {
           "range_id": 90110024,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 35000.0,
@@ -568,6 +587,7 @@
         {
           "range_id": 90110025,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 13000.0,
@@ -596,6 +616,7 @@
         {
           "range_id": 90110026,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 22000.0,
@@ -624,6 +645,7 @@
         {
           "range_id": 90110027,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 29000.0,
@@ -657,6 +679,7 @@
         {
           "range_id": 90110028,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 7500.0,
@@ -685,6 +708,7 @@
         {
           "range_id": 90110029,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 36000.0,
@@ -713,6 +737,7 @@
         {
           "range_id": 90110030,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 21000.0,
@@ -741,6 +766,7 @@
         {
           "range_id": 90110031,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 24000.0,
@@ -769,6 +795,7 @@
         {
           "range_id": 90110032,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 16000.0,
@@ -802,6 +829,7 @@
         {
           "range_id": 90110033,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 40000.0,
@@ -830,6 +858,7 @@
         {
           "range_id": 90110034,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 18000.0,
@@ -863,6 +892,7 @@
         {
           "range_id": 90110035,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 26000.0,
@@ -891,6 +921,7 @@
         {
           "range_id": 90110036,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 9500.0,
@@ -919,6 +950,7 @@
         {
           "range_id": 90110037,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 33000.0,
@@ -947,6 +979,7 @@
         {
           "range_id": 90110038,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 14000.0,
@@ -975,6 +1008,7 @@
         {
           "range_id": 90110039,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 38000.0,
@@ -1003,6 +1037,7 @@
         {
           "range_id": 90110040,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 11000.0,
@@ -1036,6 +1071,7 @@
         {
           "range_id": 90110041,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 30000.0,
@@ -1064,6 +1100,7 @@
         {
           "range_id": 90110042,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 12000.0,
@@ -1092,6 +1129,7 @@
         {
           "range_id": 90110043,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 37000.0,
@@ -1125,6 +1163,7 @@
         {
           "range_id": 90110044,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 20000.0,
@@ -1153,6 +1192,7 @@
         {
           "range_id": 90110045,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 34000.0,
@@ -1181,6 +1221,7 @@
         {
           "range_id": 90110046,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_RANGE",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 8500.0,
@@ -1209,6 +1250,7 @@
         {
           "range_id": 90110047,
           "range_type": "INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET",
+          "risk_threshold": 0.55,
           "traffic_types": {
             "udp": {
               "base_pps": 25000.0,
