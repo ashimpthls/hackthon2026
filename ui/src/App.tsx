@@ -314,6 +314,7 @@ uvicorn dfsi.api.app:app --port 8000`}
         <div className="column-left">
           <TriggerPanel
             catalogue={catalogue}
+            policies={policies}
             selected={selectedReplay}
             onSelect={setSelectedReplay}
             speed={speed}

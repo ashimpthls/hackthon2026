@@ -1,11 +1,12 @@
 /** Trigger controls — pick a scenario and start the replay. */
 
-import { useEffect, useState } from 'react'
-import type { CatalogueEntry } from '../lib/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { CatalogueEntry, PolicySnapshot } from '../lib/types'
 import { SCENARIO_LABELS } from '../lib/format'
 
 interface Props {
   catalogue: CatalogueEntry[]
+  policies: PolicySnapshot | null
   selected: string | null
   onSelect: (replayId: string) => void
   speed: number
@@ -18,11 +19,18 @@ interface Props {
 
 interface Account {
   account_id: number
-  ranges: { range_id: number; has_onset?: boolean }[]
+  ranges: { range_id: number }[]
 }
 
-interface RawData {
-  accounts: Account[]
+function groupByAccount(policies: PolicySnapshot | null): Account[] {
+  const accounts = new Map<number, Account>()
+  for (const range of policies?.ranges ?? []) {
+    if (range.account_id === null) continue
+    const account = accounts.get(range.account_id) ?? { account_id: range.account_id, ranges: [] }
+    account.ranges.push({ range_id: range.range_id })
+    accounts.set(range.account_id, account)
+  }
+  return [...accounts.values()]
 }
 
 const SPEEDS = [
@@ -34,6 +42,7 @@ const SPEEDS = [
 
 export function TriggerPanel({
   catalogue,
+  policies,
   selected,
   onSelect,
   speed,
@@ -44,7 +53,7 @@ export function TriggerPanel({
   disabled,
 }: Props) {
   const [scenarios, setScenarios] = useState<string[]>([])
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const accounts = useMemo(() => groupByAccount(policies), [policies])
   const [selectedScenario, setSelectedScenario] = useState<string>('')
   const [selectedAccountId, setSelectedAccountId] = useState<number | ''>('')
   const [selectedRangeId, setSelectedRangeId] = useState<number | ''>('')
@@ -58,20 +67,10 @@ export function TriggerPanel({
   }, [catalogue])
 
   useEffect(() => {
-    const loadAccounts = async () => {
-      try {
-        const response = await fetch('/raw.json')
-        const data: RawData = await response.json()
-        setAccounts(data.accounts)
-        if (data.accounts.length > 0) {
-          setSelectedAccountId(data.accounts[0].account_id)
-        }
-      } catch (error) {
-        console.error('Failed to load accounts:', error)
-      }
+    if (accounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(accounts[0].account_id)
     }
-    loadAccounts()
-  }, [])
+  }, [accounts, selectedAccountId])
 
   useEffect(() => {
     if (selectedAccountId && scenarios.length > 0 && selectedScenario) {
@@ -99,22 +98,7 @@ export function TriggerPanel({
   const ranges = currentAccount?.ranges ?? []
   const selectedReplay = catalogue.find((entry) => entry.replay_id === selected)
 
-  // Prefer raw.json has_onset as source of truth, fallback to backend if needed
-  const getOnsetStatus = (): boolean | null => {
-    if (selectedRangeId) {
-      const rangeData = currentAccount?.ranges.find((r) => r.range_id === selectedRangeId)
-      if (rangeData?.has_onset !== undefined) {
-        return rangeData.has_onset
-      }
-    }
-    // Fallback to backend catalogue if raw.json doesn't have it
-    if (selectedReplay?.has_onset !== undefined) {
-      return selectedReplay.has_onset
-    }
-    return null
-  }
-
-  const onsetStatus = getOnsetStatus()
+  const onsetStatus = selectedReplay?.has_onset ?? null
 
   return (
     <section className="panel trigger">
