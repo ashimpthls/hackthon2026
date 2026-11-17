@@ -38,12 +38,14 @@ Design rules that keep the synthetic world from handing the model the answer:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterator, Sequence
 
 import numpy as np
 
-from ..config import SCENARIO_SET_VERSION, WINDOW_SECONDS
+from ..config import PATHS, SCENARIO_SET_VERSION, WINDOW_SECONDS
 
 TRAFFIC_TYPES: tuple[str, ...] = ("udp", "tcp_syn", "http")
 SCENARIO_TYPES: tuple[str, ...] = (
@@ -96,50 +98,21 @@ def _pps_to_mbps(pps: float | np.ndarray, traffic_type: str) -> float | np.ndarr
     return pps * _MEAN_PACKET_BYTES[traffic_type] * 8.0 / 1_000_000.0
 
 
-DEFAULT_RANGES: tuple[RangeProfile, ...] = (
-    RangeProfile(range_id=90110001, account_id=421001, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 14000.0, "tcp_syn": 22000.0, "http": 48000.0}),
-    RangeProfile(range_id=90110002, account_id=421001, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 9000.0, "tcp_syn": 11000.0, "http": 26000.0}),
-    RangeProfile(range_id=90110010, account_id=421001, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 12000.0, "tcp_syn": 18000.0, "http": 35000.0}),
-    RangeProfile(range_id=90110011, account_id=421001, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 20000.0, "tcp_syn": 16000.0, "http": 42000.0}),
-    RangeProfile(range_id=90110003, account_id=558777, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 31000.0, "tcp_syn": 18000.0, "http": 64000.0}),
-    RangeProfile(range_id=90110012, account_id=558777, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 25000.0, "tcp_syn": 20000.0, "http": 55000.0}),
-    RangeProfile(range_id=90110013, account_id=558777, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 18000.0, "tcp_syn": 12000.0, "http": 38000.0}),
-    RangeProfile(range_id=90110004, account_id=612430, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 6500.0, "tcp_syn": 7200.0, "http": 15000.0}),
-    RangeProfile(range_id=90110014, account_id=612430, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 8000.0, "tcp_syn": 9500.0, "http": 19000.0}),
-    RangeProfile(range_id=90110015, account_id=612430, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 11000.0, "tcp_syn": 10000.0, "http": 22000.0}),
-    RangeProfile(range_id=90110016, account_id=789254, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 27000.0, "tcp_syn": 24000.0, "http": 52000.0}),
-    RangeProfile(range_id=90110017, account_id=789254, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 15000.0, "tcp_syn": 14000.0, "http": 30000.0}),
-    RangeProfile(range_id=90110018, account_id=934567, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 32000.0, "tcp_syn": 26000.0, "http": 58000.0}),
-    RangeProfile(range_id=90110019, account_id=934567, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 5000.0, "tcp_syn": 6000.0, "http": 11000.0}),
-    RangeProfile(range_id=90110020, account_id=934567, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 19000.0, "tcp_syn": 15000.0, "http": 33000.0}),
-    RangeProfile(range_id=90110021, account_id=934567, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 23000.0, "tcp_syn": 19000.0, "http": 41000.0}),
-    RangeProfile(range_id=90110022, account_id=445821, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 10000.0, "tcp_syn": 8000.0, "http": 21000.0}),
-    RangeProfile(range_id=90110023, account_id=445821, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 28000.0, "tcp_syn": 23000.0, "http": 49000.0}),
-    RangeProfile(range_id=90110024, account_id=521000, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 35000.0, "tcp_syn": 30000.0, "http": 72000.0}),
-    RangeProfile(range_id=90110025, account_id=521000, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 13000.0, "tcp_syn": 11000.0, "http": 29000.0}),
-    RangeProfile(range_id=90110026, account_id=521000, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 22000.0, "tcp_syn": 17000.0, "http": 44000.0}),
-    RangeProfile(range_id=90110027, account_id=521000, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 29000.0, "tcp_syn": 25000.0, "http": 60000.0}),
-    RangeProfile(range_id=90110028, account_id=634500, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 7500.0, "tcp_syn": 9000.0, "http": 17000.0}),
-    RangeProfile(range_id=90110029, account_id=634500, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 36000.0, "tcp_syn": 28000.0, "http": 66000.0}),
-    RangeProfile(range_id=90110030, account_id=634500, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 21000.0, "tcp_syn": 13000.0, "http": 36000.0}),
-    RangeProfile(range_id=90110031, account_id=634500, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 24000.0, "tcp_syn": 21000.0, "http": 45000.0}),
-    RangeProfile(range_id=90110032, account_id=634500, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 16000.0, "tcp_syn": 12000.0, "http": 32000.0}),
-    RangeProfile(range_id=90110033, account_id=756120, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 40000.0, "tcp_syn": 33000.0, "http": 75000.0}),
-    RangeProfile(range_id=90110034, account_id=756120, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 18000.0, "tcp_syn": 15000.0, "http": 37000.0}),
-    RangeProfile(range_id=90110035, account_id=823450, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 26000.0, "tcp_syn": 20000.0, "http": 50000.0}),
-    RangeProfile(range_id=90110036, account_id=823450, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 9500.0, "tcp_syn": 7000.0, "http": 18000.0}),
-    RangeProfile(range_id=90110037, account_id=823450, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 33000.0, "tcp_syn": 27000.0, "http": 62000.0}),
-    RangeProfile(range_id=90110038, account_id=823450, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 14000.0, "tcp_syn": 11000.0, "http": 28000.0}),
-    RangeProfile(range_id=90110039, account_id=823450, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 38000.0, "tcp_syn": 31000.0, "http": 68000.0}),
-    RangeProfile(range_id=90110040, account_id=823450, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 11000.0, "tcp_syn": 9000.0, "http": 24000.0}),
-    RangeProfile(range_id=90110041, account_id=910234, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 30000.0, "tcp_syn": 22000.0, "http": 55000.0}),
-    RangeProfile(range_id=90110042, account_id=910234, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 12000.0, "tcp_syn": 10000.0, "http": 25000.0}),
-    RangeProfile(range_id=90110043, account_id=910234, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 37000.0, "tcp_syn": 29000.0, "http": 65000.0}),
-    RangeProfile(range_id=90110044, account_id=998765, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 20000.0, "tcp_syn": 16000.0, "http": 39000.0}),
-    RangeProfile(range_id=90110045, account_id=998765, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 34000.0, "tcp_syn": 28000.0, "http": 63000.0}),
-    RangeProfile(range_id=90110046, account_id=998765, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_RANGE", base_pps={"udp": 8500.0, "tcp_syn": 6500.0, "http": 16000.0}),
-    RangeProfile(range_id=90110047, account_id=998765, range_type="INFRA_PROTECT_TOPOLOGY_TYPE_SUBNET", base_pps={"udp": 25000.0, "tcp_syn": 19000.0, "http": 46000.0}),
-)
+def load_ranges(path: Path) -> tuple[RangeProfile, ...]:
+    """Every range in raw.json, in file order (the order seeds the generator)."""
+    return tuple(
+        RangeProfile(
+            range_id=int(rng["range_id"]),
+            account_id=int(account["account_id"]),
+            range_type=str(rng["range_type"]),
+            base_pps={t: float(spec["base_pps"]) for t, spec in rng["traffic_types"].items()},
+        )
+        for account in json.loads(path.read_text())["accounts"]
+        for rng in account["ranges"]
+    )
+
+
+DEFAULT_RANGES: tuple[RangeProfile, ...] = load_ranges(PATHS.policy_db)
 
 # Base frequency of each scenario family. Heavily skewed towards normal, which
 # is what production looks like. Attack families are then reweighted by the

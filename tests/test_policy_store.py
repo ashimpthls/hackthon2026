@@ -198,18 +198,31 @@ def _approve_tighten(client, replay_id: str, verdict: str = "approved") -> dict:
     ).json()
 
 
-UDP_ATTACK = "sustained_attack__90110002-d22h10"
+@pytest.fixture
+def tightenable(api_client) -> str:
+    """An attack replay whose drill suggests a tighter line.
+
+    Picked from the catalogue rather than hardcoded: replay ids change whenever
+    the synthetic set is regenerated.
+    """
+    for entry in api_client.get("/api/replays").json()["replays"]:
+        if not entry["has_onset"]:
+            continue
+        plan = api_client.post("/api/drill", json={"replay_id": entry["replay_id"]}).json()["policy_plan"]
+        if plan["change"] != "no change":
+            return entry["replay_id"]
+    pytest.skip("no replay in the catalogue has a tightening to approve")
 
 
 @requires_memory
 @requires_model
-def test_an_approved_change_is_in_force_on_the_next_run(api_client):
-    before = _run(api_client, UDP_ATTACK)
-    record = _approve_tighten(api_client, UDP_ATTACK)
+def test_an_approved_change_is_in_force_on_the_next_run(api_client, tightenable):
+    before = _run(api_client, tightenable)
+    record = _approve_tighten(api_client, tightenable)
     assert record["applied"], record
     assert record["policy_version_after"] == record["policy_version_before"] + 1
 
-    after = _run(api_client, UDP_ATTACK)
+    after = _run(api_client, tightenable)
     assert after["policy_version"] == record["policy_version_after"]
     new_line = record["policy_change"]["per_type"][0]
     assert after["policy"][new_line["traffic_type"]]["max_threshold_pps"] == new_line["suggested_policy_pps"]
@@ -218,24 +231,24 @@ def test_an_approved_change_is_in_force_on_the_next_run(api_client):
     assert after["bell_after_seconds"] <= before["bell_after_seconds"]
 
     # Already tightened: the next suggestion keeps the new line.
-    plan = api_client.post("/api/drill", json={"replay_id": UDP_ATTACK}).json()["policy_plan"]
+    plan = api_client.post("/api/drill", json={"replay_id": tightenable}).json()["policy_plan"]
     assert plan["change"] == "no change"
 
 
 @requires_memory
 @requires_model
-def test_a_rejected_change_is_not_applied(api_client):
-    record = _approve_tighten(api_client, UDP_ATTACK, verdict="rejected")
+def test_a_rejected_change_is_not_applied(api_client, tightenable):
+    record = _approve_tighten(api_client, tightenable, verdict="rejected")
     assert not record["applied"]
     assert api_client.get("/api/policies").json()["version"] == 1
 
 
 @requires_memory
 @requires_model
-def test_reset_puts_the_seed_back_in_force(api_client):
-    before = _run(api_client, UDP_ATTACK)
-    _approve_tighten(api_client, UDP_ATTACK)
+def test_reset_puts_the_seed_back_in_force(api_client, tightenable):
+    before = _run(api_client, tightenable)
+    _approve_tighten(api_client, tightenable)
     api_client.post("/api/policies/reset")
-    after = _run(api_client, UDP_ATTACK)
+    after = _run(api_client, tightenable)
     assert after["blocked_share_total"] == pytest.approx(before["blocked_share_total"])
     assert after["policy"] == before["policy"]
